@@ -1,0 +1,63 @@
+{
+  "name": "example",
+  "brand": "Example Med Spa",
+  "aliases": ["example medspa", "examplemedspa.com"],
+  "domain": "examplemedspa.com",
+  "baseUrl": "https://examplemedspa.com",
+  "sitemaps": ["https://examplemedspa.com/sitemap.xml"],
+  "competitors": ["Competitor A", "Competitor B"],
+  "schemaTypesExpected": ["MedicalBusiness", "LocalBusiness", "WebSite"],
+  "cms": {
+    "type": "dryrun",
+    "_help": "dryrun = report only (default). nextjs = edit repo + open PR. wordpress = WP REST API.",
+    "repoPath": "/absolute/path/to/the/clients/nextjs/repo",
+    "branchPrefix": "seo-bot/",
+    "wpBaseUrl": "https://examplemedspa.com",
+    "wpUser": "ENV:WP_USER",
+    "wpAppPassword": "ENV:WP_APP_PASSWORD"
+  },
+  "gsc": {
+    "enabled": false,
+    "siteUrl": "https://examplemedspa.com/",
+    "_help": "Set enabled:true once you have a service-account JSON at GSC_CREDENTIALS and have added it as a GSC user."
+  },
+  "indexnowKey": "REPLACE_WITH_INDEXNOW_KEY_HOSTED_AT_/{key}.txt",
+  "engines": ["perplexity", "google_aio"],
+  "promptPanel": [
+    "best med spa in {city}",
+    "how much does Botox cost in {city}",
+    "{brand} reviews"
+  ],
+  "audit": {
+    "maxPages": 40,
+    "excludePaths": ["/api/", "/_next/", "/wp-admin/"],
+    "minWords": 300,
+    "freshnessDays": 90
+  },
+  "domains": ["examplemedspa.com"],
+  "_help_domains": "All owned domains/subdomains for this brand — drives the cross-domain entity graph + portfolio rollup.",
+  "edge": {
+    "type": "none",
+    "_help": "none | vercel (Edge Config/middleware overlay on infra WE own) | cloudflare-worker (HTMLRewriter for clients not on our edge — graduates to source PR). Server-rendered, content-PARITY only; never cloaking.",
+    "edgeConfigId": "ENV:EDGE_CONFIG_ID",
+    "cloaking": false
+  },
+  "dns": {
+    "provider": "cloudflare",
+    "_help": "Reads/writes zone records via connect/cloudflare.mjs. Trust/verification/deliverability lever (not a ranking factor): CAA, SPF/DKIM/DMARC/BIMI/MTA-STS, verification TXT, IndexNow key. All writes gated behind --yes.",
+    "manageEmailAuth": false,
+    "indexnowKeyAtRoot": true
+  },
+  "aiPolicy": "allow",
+  "_help_aiPolicy": "allow | index-only (allow OAI-SearchBot/PerplexityBot/Googlebot, block GPTBot/CCBot/Bytespider training) | block-training. Drives robots.txt + edge bot handling.",
+  "riskTiers": {
+    "_help": "Pages matching highRiskPathRe ALWAYS queue for human review (never auto-apply); legal-sensitive med-spa rules never auto-apply regardless.",
+    "highRiskPathRe": "^/$|/pricing|/book|/consult",
+    "autoApplyMaxSeverity": "low"
+  },
+  "logs": {
+    "_help": "Server/edge access-log source for crawl intelligence (crawl-budget + crawl-to-cite). OTTO has no equivalent.",
+    "drainUrl": "",
+    "supabaseTable": "seo_bot_access_logs"
+  }
+}

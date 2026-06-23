@@ -1,0 +1,37 @@
+{
+  "name": "seo-bot",
+  "version": "0.1.0",
+  "description": "Autonomous, plug-and-play SEO/AEO engine — audits a site, proposes fixes, pushes them as PRs behind a verifier-consensus gate, and tracks AI-search visibility (ChatGPT / Google AI Mode / Perplexity / AI Overviews). Runs on the Claude Code subscription — no API key required.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "seo-bot": "seo-bot/bin/seo-bot.mjs"
+  },
+  "scripts": {
+    "seo-bot": "node seo-bot/bin/seo-bot.mjs",
+    "test": "node seo-bot/bin/seo-bot.mjs test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0"
+  },
+  "optionalDependencies": {
+    "patchright": "^1.61.0",
+    "playwright": "^1.40.0",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@vercel/edge-config": "^1.0.0"
+  },
+  "keywords": [
+    "seo",
+    "aeo",
+    "geo",
+    "generative-engine-optimization",
+    "ai-search",
+    "chatgpt",
+    "ai-overviews",
+    "llm",
+    "claude-code"
+  ]
+}

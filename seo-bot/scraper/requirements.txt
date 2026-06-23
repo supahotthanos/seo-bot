@@ -1,0 +1,14 @@
+# seo-bot Scrapling stealth sidecar — pinned to verified-latest (June 2026).
+# Python >=3.10 required.
+scrapling[fetchers]==0.4.9
+feedparser>=6.0        # optional; stdlib XML fallback exists if absent
+youtube-transcript-api>=0.6  # for --mode youtube (channel RSS → transcripts); empty without it
+
+# AFTER pip install, you MUST download the stealth browser binaries:
+#     scrapling install
+# (`scrapling[fetchers]` pulls playwright/patchright; `scrapling install` fetches
+#  the Camoufox/Chromium browser binaries that StealthyFetcher needs. Skipping it
+#  makes StealthyFetcher fail silently at runtime — the #1 setup mistake.)
+#
+# Optional MCP server (lets a Claude Code agent use Scrapling as tools directly):
+#     pip install "scrapling[ai]"   &&   scrapling mcp

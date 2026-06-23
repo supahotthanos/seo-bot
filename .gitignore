@@ -1,0 +1,15 @@
+node_modules/
+seo-bot/reports/
+data/all-spas.json
+data/ai-visibility/
+**/ai-visibility/*.json
+**/ai-visibility/trend.csv
+*.log
+.env
+.env.*
+*.local.json
+seo-bot/config/*.json
+!seo-bot/config/example.client.json
+!seo-bot/config/source-trust.json
+.DS_Store
+chatgpt-auth.json
