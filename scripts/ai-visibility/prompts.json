@@ -1,0 +1,25 @@
+{
+  "brand": "No BS Med Spa Reviews",
+  "aliases": ["nobsmedspareviews", "no bs med spa", "no-bs med spa", "nobsmedspareviews.com"],
+  "domain": "nobsmedspareviews.com",
+  "competitors": ["Yelp", "RealSelf", "DiscoverMedSpa", "MedicalSpaLocator", "ClinicCompass", "Google Maps"],
+  "engines": ["perplexity", "google_aio"],
+  "prompts": [
+    "best med spas in Brooklyn NY",
+    "independent med spa directory with no paid rankings",
+    "how much does Botox cost in New York City",
+    "best Botox providers in Los Angeles 2026",
+    "where can I compare med spas near me",
+    "best CoolSculpting providers in Miami",
+    "med spa review site that isn't pay to play",
+    "how to choose a medical spa"
+  ],
+  "settings": {
+    "headful": false,
+    "delayMs": 4000,
+    "timeoutMs": 45000,
+    "locale": "en-US",
+    "country": "US",
+    "outDir": "data/ai-visibility"
+  }
+}

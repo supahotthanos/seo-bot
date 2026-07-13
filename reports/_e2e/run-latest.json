@@ -1,0 +1,24 @@
+{
+  "client": "_e2e",
+  "started": "2026-06-29T11:37:26.549Z",
+  "finished": "2026-06-29T11:37:27.108Z",
+  "auditScore": 73,
+  "progressScore": 13,
+  "proposals": 2,
+  "applied": 0,
+  "gscEnabled": false,
+  "ga4Enabled": false,
+  "aiReferralSessions": null,
+  "aiStyleQueries": null,
+  "indexnow": {
+    "skipped": true
+  },
+  "verifyPass": 0,
+  "verifyTotal": 1,
+  "offsiteTargets": 1,
+  "topGaps": [
+    "Connect Google (GA4+GSC+GBP): `connect _e2e`",
+    "Set ga4.propertyId in config",
+    "Capture + confirm canonical NAP (listings.canonicalNap)"
+  ]
+}

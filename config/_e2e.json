@@ -1,0 +1,9 @@
+{
+  "name": "_e2e",
+  "brand": "E2E Test Spa",
+  "domain": "e2e.test",
+  "baseUrl": "https://e2e.test",
+  "vertical": "medspa",
+  "cms": { "type": "dryrun" },
+  "riskTiers": { "autoApplyMaxSeverity": "low", "highRiskPathRe": "(^/?$)|/(pricing|book|consult|contact|checkout|cart|appointment)" }
+}

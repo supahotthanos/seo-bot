@@ -1,15 +1,38 @@
-node_modules/
-seo-bot/reports/
-data/all-spas.json
-data/ai-visibility/
-**/ai-visibility/*.json
-**/ai-visibility/trend.csv
-*.log
-.env
-.env.*
-*.local.json
-seo-bot/config/*.json
-!seo-bot/config/example.client.json
-!seo-bot/config/source-trust.json
-.DS_Store
+# Generated run artifacts — regenerated on every run, not source.
+# (reports/* not reports/ so the ONE tracked test fixture below can be re-included)
+reports/*
+# Test fixture: the BB2 dashboard-bundle floor test reads reports/_e2e/run-latest.json —
+# a fresh checkout/worktree must reach the test floor without a prior e2e run.
+!reports/_e2e/
+reports/_e2e/*
+!reports/_e2e/run-latest.json
+# Per-client AI-visibility tracking output + generated prompt files
+**/ai-visibility/
+**/ai-prompts.json
+# ...but scripts/ai-visibility is the tracker CODE (the `measure` command runs it), not output — keep it
+!scripts/ai-visibility/
+!scripts/ai-visibility/**
+# Captured auth sessions + OAuth tokens (never commit)
 chatgpt-auth.json
+*-auth.json
+secrets/
+config/google-oauth.json
+# Local-only client configs (secrets / private domains)
+config/*.local.json
+# Python sidecar artifacts
+scraper/__pycache__/
+scraper/*.pyc
+scraper/.venv/
+
+# Standalone: node deps + large local dataset (kept on disk, not in git)
+node_modules/
+data/all-spas.json
+
+# Local agent/editor + MCP scratch — not source
+.claude/
+.playwright-mcp/
+
+# scheduler runtime state (machine-local: task XMLs, install marker, heartbeat, history)
+state/
+logs/
+.env

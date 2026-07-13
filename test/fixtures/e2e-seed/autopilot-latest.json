@@ -1,0 +1,17 @@
+{
+  "results": [
+    {
+      "taskKey": "meta:https://e2e.test/about-our-team",
+      "type": "meta",
+      "page": "https://e2e.test/about-our-team",
+      "consensus": {
+        "consensus": true,
+        "available": true
+      },
+      "screenshot": {
+        "verdict": "safe",
+        "magnitude": 0
+      }
+    }
+  ]
+}

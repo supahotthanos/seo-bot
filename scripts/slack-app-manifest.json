@@ -1,0 +1,28 @@
+{
+  "display_information": {
+    "name": "SeenAI",
+    "description": "SEO engine alerts — approval queue mirror + C-suite escalations (run failures, guardrail trips, new client intake)",
+    "background_color": "#0b1020"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "seenai",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "chat:write.public",
+        "channels:read",
+        "groups:read"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

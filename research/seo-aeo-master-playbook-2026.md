@@ -4,7 +4,7 @@
 
 ## Master tactic registry (encode the genuinely-new ones into tactics/registry.mjs)
 
-COMPLETE DEDUPED TACTIC REGISTRY to encode in seo-bot/src/tactics/registry.mjs. Schema per row: {id | name | hat | evidenceTier | currentlyWorking | automatable(auto/opt-in/manual/no) | description}. evidenceTier: high=large-n/controlled/peer-reviewed, medium=mixed/multi-operator, low=single-operator/anecdote. The owner accepts grey on OWNED sites, so grey levers are opt-in not no.
+COMPLETE DEDUPED TACTIC REGISTRY to encode in ../seo-bot/src/tactics/registry.mjs. Schema per row: {id | name | hat | evidenceTier | currentlyWorking | automatable(auto/opt-in/manual/no) | description}. evidenceTier: high=large-n/controlled/peer-reviewed, medium=mixed/multi-operator, low=single-operator/anecdote. The owner accepts grey on OWNED sites, so grey levers are opt-in not no.
 
 === WHITE — AUTO (build & auto-apply; no penalty surface) ===
 1. rank-top10 | Rank organically top-10 (SEO is the prerequisite for AEO) | white | high | yes | auto | Highest single citation driver; the whole audit/loop serves this. AIO citation now decoupled from #1 (only ~38% of cited also top-10) so target top-30 broadly, not #1 narrowly.
@@ -65,7 +65,7 @@ COMPLETE DEDUPED TACTIC REGISTRY to encode in seo-bot/src/tactics/registry.mjs. 
 50. cosmetic-freshness | Date-only refresh / "Updated 2026" with no body change; 250-char keyword-stuffed titles; FAQ/HowTo for rich results | grey/white | high | dead | no | Engines diff content delta (date bumps detected); FAQ rich results removed May-7-2026, HowTo Sept-2023; Google rewrites 250-char titles. Keep FAQ markup as comprehension only, expect zero SERP feature.
 ## Bot build backlog (the executors to BUILD)
 
-EXECUTORS TO BUILD in seo-bot/ so the bot DOES these (not just registers them), ranked by impact. Format: [module] — what it does + tactic ids served. Grounded in the EXISTING code map (the bot already has fanout/rrf/passage/crawl-to-cite/mesh/sculpt/sov/entity-binder/schema/serp/sources/listings/gbp/bing/indexnow). These are the REAL gaps.
+EXECUTORS TO BUILD in ../seo-bot/ so the bot DOES these (not just registers them), ranked by impact. Format: [module] — what it does + tactic ids served. Grounded in the EXISTING code map (the bot already has fanout/rrf/passage/crawl-to-cite/mesh/sculpt/sov/entity-binder/schema/serp/sources/listings/gbp/bing/indexnow). These are the REAL gaps.
 
 P0 — THE DATA-MOAT GENERATOR (the one big missing executor; everything else is incremental)
 1. [content/programmatic.mjs] Data-moat page generator over the directory's own dataset (lib/data.ts / data/all-spas.json). For each spa/city/service row: render a unique page from real fields (NAP, geo, hours, real photos, scraped feature-flags, real reviews, distance) with conditional-block templates (sections render only when the data field exists), emit per-row LocalBusiness/MedicalBusiness + ItemList + Breadcrumb + Service/Offer schema, and HARD-GATE on a uniqueness check: "does a DB query return a non-empty unique-data column for this page?" → if no, noindex/skip. Serves: programmatic-data-pages, schema-localbusiness, editorial-synthesis-layer. THIS is the single highest-impact build — the bot currently audits/proposes but cannot GENERATE the directory's pages at scale. Wire to index-discipline (noindex thin tail, promote on data thresholds).

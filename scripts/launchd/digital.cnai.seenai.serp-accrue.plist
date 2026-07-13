@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>digital.cnai.seenai.serp-accrue</string>
+  <!-- the Google lane (warm Chrome profile, cooldown-gated) — KeepAlive supervision -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/Users/supahotthanos/seo-bot/scripts/serp-accrue.sh</string>
+  </array>
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  <key>ThrottleInterval</key><integer>60</integer>
+  <key>StandardOutPath</key><string>/Users/supahotthanos/seo-bot/logs/launchd-serp-accrue.out</string>
+  <key>StandardErrorPath</key><string>/Users/supahotthanos/seo-bot/logs/launchd-serp-accrue.err</string>
+  <key>ProcessType</key><string>Background</string>
+</dict></plist>

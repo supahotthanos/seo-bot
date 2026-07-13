@@ -1,0 +1,77 @@
+{
+ "client": "_e2e",
+ "score": 78,
+ "ranAt": "2026-06-27T19:00:00.000Z",
+ "proposals": [
+  {
+   "type": "meta",
+   "page": "https://e2e.test/about-our-team",
+   "severity": "low",
+   "priority": 0.4,
+   "autoApplicable": true,
+   "current": "About our team — meet the friendly people behind our studio, learn how we got started, tour the neighborhood, and find directions, parking, and hours for your visit today. (168 chars)",
+   "proposed": "About our team — meet the people behind our studio, our story, and how to find us.",
+   "why": "Meta over 160 chars; deterministic clamp so it does not truncate in the SERP."
+  },
+  {
+   "type": "freshness",
+   "page": "https://e2e.test/city/test-springs",
+   "severity": "medium",
+   "priority": 0.5,
+   "autoApplicable": false,
+   "current": "(no dateModified)",
+   "proposed": "Emit dateModified in WebPage JSON-LD + render \"Updated June 2026\" near H1",
+   "why": "Freshness is a strong AI-citation correlate (<30-day content ~3.2x more cited)."
+  },
+  {
+   "type": "meta",
+   "page": "https://e2e.test/med-spa/glow-test-orlando",
+   "severity": "low",
+   "priority": 0.5,
+   "autoApplicable": true,
+   "current": "Glow Test Spa is a medical spa in Orlando with a 4.9/5 rating across 40 patient reviews. Address, phone, hours, and services. Reviewed quarterly. Updated 2026-06-27. (182 chars)",
+   "proposed": "Glow Test Spa — medical spa in Orlando, 4.9/5 across 40 reviews. Address, phone, hours, services. Reviewed quarterly. (149 chars)",
+   "why": "Meta was 182 chars; clamp to <=160 so it doesn't truncate in the SERP."
+  },
+  {
+   "type": "answer-block",
+   "page": "https://e2e.test/treatment/botox-test",
+   "severity": "medium",
+   "priority": 0.6,
+   "autoApplicable": false,
+   "current": "Botox is a popular treatment offered here.",
+   "proposed": "Botox at E2E Test Spa costs $12-15 per unit. A forehead treatment uses 20-40 units ($240-$600). Results show in 3-7 days and last 3-4 months.",
+   "why": "Front-load a 40-70 word answer capsule with the price in the first sentence."
+  },
+  {
+   "type": "question-headings",
+   "page": "https://e2e.test/",
+   "severity": "medium",
+   "priority": 0.5,
+   "autoApplicable": false,
+   "current": "(no question-form headings)",
+   "proposed": "How much does {service} cost in {city}? / {service} vs {alt}? / What to expect",
+   "why": "Each question heading maps to a query fan-out sub-query (RRF). Home page = money page → human."
+  },
+  {
+   "type": "glp1-rx-claims",
+   "page": "https://e2e.test/treatment/semaglutide",
+   "severity": "critical",
+   "priority": 0.9,
+   "autoApplicable": false,
+   "current": "Our semaglutide is the same active ingredient as Ozempic.",
+   "proposed": "Medically supervised prescription weight-management treatment (compounded, non-FDA-approved).",
+   "why": "GLP-1 Rx-equivalence claim — FDA/FTC exposure. Never auto-apply (YMYL)."
+  },
+  {
+   "type": "before-after-disclaimer",
+   "page": "https://e2e.test/gallery",
+   "severity": "high",
+   "priority": 0.4,
+   "autoApplicable": false,
+   "current": "(before/after photos, no disclaimer)",
+   "proposed": "Add legible 'Individual results may vary' + confirm signed HIPAA authorization on file.",
+   "why": "FTC + HIPAA: before/after needs a disclaimer + consent. Flag-only."
+  }
+ ]
+}

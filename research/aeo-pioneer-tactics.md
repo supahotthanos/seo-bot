@@ -2,7 +2,7 @@
 
 > From a 26-agent operator hunt + 13-operator tactic deep-dive (Floate, Chou, Metehan, Sturm,
 > Vickers, Ward, Nuttall, Goldie, Reiner, Rush, Schneider, Dooley, Boring Local SEO).
-> Verified tactics are encoded in `seo-bot/src/tactics/registry.mjs` (risk-labeled). Operators
+> Verified tactics are encoded in `../seo-bot/src/tactics/registry.mjs` (risk-labeled). Operators
 > + handles in `research/seo-pioneers/manifest.json`. **Anchor handles corrected:** Edward
 > **Sturm = @edwardeachday**, Jacky Chou **= @indexsy** (parent of @boringlocalseo).
 

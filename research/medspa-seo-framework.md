@@ -44,7 +44,7 @@
 
 - **Exact NAP everywhere** (the canonical record is the source of truth — see the citations worklist).
 - **Embedded map**, neighborhood/city relevance, per-location pages.
-- **The free entity graph first** (GBP/Apple/Bing), then aggregators (Data Axle/Foursquare), then AI-cited directories (Yelp/RealSelf/Healthgrades/Zocdoc). Run `node seo-bot/bin/seo-bot.mjs citations <client>`.
+- **The free entity graph first** (GBP/Apple/Bing), then aggregators (Data Axle/Foursquare), then AI-cited directories (Yelp/RealSelf/Healthgrades/Zocdoc). Run `node ../seo-bot/bin/seo-bot.mjs citations <client>`.
 
 ## 5. Medical-ad compliance (hard gates — flag-only, never auto-edited)
 

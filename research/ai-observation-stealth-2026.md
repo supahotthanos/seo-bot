@@ -35,7 +35,7 @@ Vanilla Playwright is the wrong default: it leaks `navigator.webdriver=true`, Sw
 and a JA3/JA4 TLS fingerprint that matches no real Chrome — exactly what Turnstile/Google flag.
 Keep the API surface, swap the engine:
 
-1. **Camoufox via Scrapling's StealthyFetcher** — *already in the repo* (`seo-bot/scraper/fetch.py`,
+1. **Camoufox via Scrapling's StealthyFetcher** — *already in the repo* (`../seo-bot/scraper/fetch.py`,
    `--mode stealth`). A Firefox fork that patches fingerprints at the C++ level (webdriver,
    WebGL/canvas, JA3/JA4) — things JS-stealth can't reach. Best for the **Google engines**
    (`google_aio`, `google_aimode`, `google_organic`): they only need one JS render + no in-page

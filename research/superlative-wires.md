@@ -84,7 +84,7 @@ The clean version of the template uses a **real** awarding body. These exist for
 ## 4. Risk flag (read before using the invented-institute version)
 The "independent Research Institute that doesn't accept compensation" line, when the institute is invented and the ranked business commissioned the release, is **fabricated third-party authority + a deceptive endorsement** — the exact exposure in [medspa-ein-aeo-playbook.md](research/medspa-ein-aeo-playbook.md) §9 R3 (FTC fake-review/endorsement rule, up to ~$53k/violation; health/med-spa context raises scrutiny). The wire will publish it; the liability is yours. **Prefer a real award.** Never reuse the killed fabricated "99.4 AAAPA score."
 
-## 5. Stealth-scrape queue (RUN ON MAC MINI — `python seo-bot/scraper/fetch.py --mode stealth --url <U>`)
+## 5. Stealth-scrape queue (RUN ON MAC MINI — `python ../seo-bot/scraper/fetch.py --mode stealth --url <U>`)
 Formal verifier-grade pass; **check RECENT (2026) articles only — enforcement tightened recently, old superlatives don't count:**
 1. ABNewswire editorial_guidelines.php + /knowledge (full JS-rendered prohibited-content list; WebFetch couldn't render it).
 2. Re-pull the 3 live ABNewswire 2026 examples (Element Salon, Roomika, Kinross) to confirm not Cloudflare-decayed.
