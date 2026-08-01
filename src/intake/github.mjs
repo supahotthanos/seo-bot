@@ -2,7 +2,7 @@
 //
 // The operating agreement (user, 2026-07-12): every client site is vibe-coded and handed over
 // as a GitHub repo — the dev invites the agency account (the GitHub account on
-// your-agency@example.com) as a collaborator. This lane turns that invitation into PR access:
+// seenaiseo@gmail.com) as a collaborator. This lane turns that invitation into PR access:
 //
 //   /user/repository_invitations  ──accept──▶  clone → pair with a client config → cms.repoPath
 //
@@ -108,7 +108,7 @@ export async function intakeGithub({ log = () => {}, dryRun = false, env = proce
     cloneFn = cloneRepo, candidatesFn = pairingCandidates, pairFn = pairRepoToClient,
     escalateFn = null,
   } = deps;
-  if (!token) return { ok: false, note: 'no GH_TOKEN — create a classic PAT (repo scope) for the your-agency-account GitHub account and put it in the Mini .env' };
+  if (!token) return { ok: false, note: 'no GH_TOKEN — create a classic PAT (repo scope) for the seenaiseo GitHub account and put it in the Mini .env' };
   const esc = escalateFn || (await import('../escalate.mjs')).escalate;
 
   const invites = await listFn(token);

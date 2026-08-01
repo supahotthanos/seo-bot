@@ -11,6 +11,7 @@
 // status !== 'ok' and is excluded from analysis (never a false "no sub-queries").
 
 import { launchBrowser } from './browser.mjs';
+import { isHardWall, hardWallMatch } from './capture-governor.mjs';
 
 const SEARCH_HINTS = [/search/i, /query/i, /grounding/i, /web.?search/i, /backend-api\/conversation/i];
 
@@ -42,11 +43,52 @@ function walkForQueries(node, out, depth = 0) {
   }
 }
 
+// The 2026 conversation payload is an SSE STREAM (`event: delta_encoding` + `data: {...}`
+// frames), and mid-stream updates arrive as JSON-PATCH deltas ({p: "/message/metadata/
+// content_references/5/safe_urls", o, v}) — a whole-body JSON.parse fails, which is exactly
+// how the panel silently lost every source structure while the raw bytes sat in the capture
+// (diagnosed live 2026-07-17). This expander turns one raw body into: the raw string (regex
+// fallbacks), each SSE frame as its own JSON body, and a SYNTHESIZED {field: value} object per
+// patch frame whose path names a field we track — so the existing walkers see every shape.
+const PATCH_FIELD_RE = /\/(search_model_queries|content_references|supporting_websites|safe_urls|search_result_groups?|browse_rewritten_queries|search_queries)(\/|$)/;
+export function expandConversationEntries(entries = []) {
+  const out = [...entries];
+  const addPatch = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(addPatch); return; }
+    if (typeof node.p === 'string' && 'v' in node) {
+      // LEAF field wins: "/content_references/5/safe_urls" is a safe_urls patch, not a
+      // content_references one — matching the first path segment mis-filed string URLs.
+      const m = [...node.p.matchAll(new RegExp(PATCH_FIELD_RE.source, 'g'))].pop();
+      if (m) {
+        const val = node.v;
+        const synth = Array.isArray(val) ? val : [val];
+        out.push({ body: JSON.stringify({ [m[1]]: synth }) });
+      }
+      if (Array.isArray(node.v)) node.v.forEach(addPatch); // nested op lists ("o":"patch")
+    }
+  };
+  for (const e of entries) {
+    const s = typeof e.body === 'string' ? e.body : '';
+    if (!s || !/(^|\n)data: /.test(s)) continue;
+    for (const line of s.split('\n')) {
+      if (!line.startsWith('data: ')) continue;
+      const frame = line.slice(6).trim();
+      if (!frame || frame[0] !== '{') continue;
+      let j = null; try { j = JSON.parse(frame); } catch { continue; }
+      out.push({ body: frame }); // full-frame JSON — the walkers parse this directly
+      addPatch(j);
+    }
+  }
+  return out;
+}
+
 /** PURE + testable: pull candidate sub-queries out of intercepted network bodies.
  *  entries: [{ url, postData, body }] collected from requests/responses.
  *  Two passes: (1) JSON.parse + recursive field walk (robust to the 5.3/5.4 relocation),
  *  (2) the legacy regex sweep as a fallback for fragments/non-JSON bodies. */
-export function extractFromNetwork(entries = []) {
+export function extractFromNetwork(rawEntries = []) {
+  const entries = expandConversationEntries(rawEntries);
   const out = [];
   for (const e of entries) {
     for (const b of [e.postData, e.body].filter(Boolean)) {
@@ -69,7 +111,8 @@ export function extractFromNetwork(entries = []) {
  *  content_references.items[].url, safe_urls[], and search_result_group entries
  *  ({title,url,snippet}). Additive companion to extractFromNetwork; a capture that
  *  carries citations lets SoV/sources join fan-out → cited-source without a second fetch. */
-export function extractCitationsFromNetwork(entries = []) {
+export function extractCitationsFromNetwork(rawEntries = []) {
+  const entries = expandConversationEntries(rawEntries);
   const urls = [], results = [];
   const walk = (node, depth = 0) => {
     if (!node || depth > 24) return;
@@ -102,27 +145,67 @@ export function extractCitationsFromNetwork(entries = []) {
  *  cited sources (content_references items, WITH titles), and safe_urls. Honest: everything is empty when
  *  the model didn't search (e.g. a low/Instant answer from memory). Complements the DOM trace with the
  *  authoritative raw payload — "what he says to do", from the source, not screen-scraped. */
-export function extractSturm(entries = []) {
-  const searchModelQueries = extractFromNetwork(entries); // reuse the robust, relocation-proof query walk
-  const refs = [], safe = [];
+export function extractSturm(rawEntries = []) {
+  const entries = expandConversationEntries(rawEntries);
+  const searchModelQueries = extractFromNetwork(rawEntries); // does its own expansion
+  const refs = [], safe = [], supporting = [], rewritten = [], groupResults = [];
+  let resolvedModelSlug = null; // "resolved_model_slug": the TRUE serving model per the stream
+  const pipes = new Map(); // result_source label → count (July-2026: bright / labrador / serp / oxylabs / bing)
+  const bumpPipe = (label) => { if (typeof label === 'string' && label.length < 32) pipes.set(label, (pipes.get(label) || 0) + 1); };
+  const asUrl = (u) => typeof u === 'string' && /^https?:\/\//.test(u);
   const walk = (node, depth = 0) => {
     if (!node || depth > 24) return;
     if (Array.isArray(node)) { for (const v of node) walk(v, depth + 1); return; }
     if (typeof node !== 'object') return;
+    // Per-node result_source tag stays with whatever host object carries the source URL, so the
+    // caller can attribute EACH cited URL back to the pipe that fetched it (Sturm-refresh 2026).
+    const rs = typeof node.result_source === 'string' ? node.result_source : null;
+    if (rs) bumpPipe(rs);
     for (const [k, v] of Object.entries(node)) {
-      if (k === 'safe_urls' && Array.isArray(v)) { for (const u of v) if (typeof u === 'string' && /^https?:\/\//.test(u)) safe.push(u); }
+      if (k === 'resolved_model_slug' && typeof v === 'string' && !resolvedModelSlug) resolvedModelSlug = v;
+      else if (k === 'safe_urls' && Array.isArray(v)) { for (const u of v) if (asUrl(u)) safe.push(u); }
       else if (k === 'content_references' && Array.isArray(v)) {
         for (const ref of v) {
-          const items = ref?.items || (typeof ref?.url === 'string' ? [ref] : []);
-          for (const it of items) if (typeof it?.url === 'string' && /^https?:\/\//.test(it.url)) refs.push({ url: it.url, title: it.title || it.attribution || '' });
+          const items = ref?.items || (asUrl(ref?.url) ? [ref] : []);
+          for (const it of items) if (asUrl(it?.url)) {
+            const label = it.result_source || ref?.result_source || rs || null;
+            bumpPipe(label);
+            refs.push({ url: it.url, title: it.title || it.attribution || '', resultSource: label });
+            // 2026 shape: each citation entry can carry its own runner-up list inline.
+            for (const sw of (Array.isArray(it.supporting_websites) ? it.supporting_websites : [])) {
+              if (asUrl(sw?.url)) { const l2 = sw.result_source || label; bumpPipe(l2); supporting.push({ url: sw.url, title: sw.title || '', resultSource: l2 }); }
+            }
+          }
+        }
+      } else if (k === 'supporting_websites' && Array.isArray(v)) {
+        // July-2026: runner-up sources per claim, each carrying its own result_source label.
+        for (const it of v) if (asUrl(it?.url)) { const label = it.result_source || rs || null; bumpPipe(label); supporting.push({ url: it.url, title: it.title || '', resultSource: label }); }
+      } else if (k === 'browse_rewritten_queries' && Array.isArray(v)) {
+        // 5.4 Instant, product paths: the model's own reformulation of the user's ask.
+        for (const q of v) if (typeof q === 'string' && q.trim().length >= 3 && q.length <= 200) rewritten.push(q.trim());
+      } else if ((k === 'search_result_group' || k === 'search_result_groups') && (Array.isArray(v) || (v && typeof v === 'object'))) {
+        const groups = Array.isArray(v) ? v : [v];
+        for (const g of groups) {
+          const rs2 = g?.result_source || rs || null;
+          for (const r of (g?.entries || g?.results || [])) {
+            if (asUrl(r?.url)) { const label = r.result_source || rs2; bumpPipe(label); groupResults.push({ url: r.url, title: r.title || '', snippet: r.snippet || '', resultSource: label }); }
+          }
         }
       } else if (v && typeof v === 'object') walk(v, depth + 1);
     }
   };
   for (const e of entries) for (const b of [e.postData, e.body].filter(Boolean)) { try { walk(JSON.parse(typeof b === 'string' ? b : JSON.stringify(b))); } catch { /* non-JSON carries no structures */ } }
-  const seen = new Set(), contentReferences = [];
-  for (const r of refs) if (!seen.has(r.url)) { seen.add(r.url); contentReferences.push(r); }
-  return { searchModelQueries, contentReferences, safeUrls: [...new Set(safe)] };
+  const dedupe = (arr, key) => { const s = new Set(), out = []; for (const r of arr) { const k = r[key]; if (!s.has(k)) { s.add(k); out.push(r); } } return out; };
+  return {
+    searchModelQueries,
+    contentReferences: dedupe(refs, 'url'),
+    supportingWebsites: dedupe(supporting, 'url'),   // "runner-up" cites — competitive alternatives per claim
+    rewrittenQueries: [...new Set(rewritten)],       // browse_rewritten_queries (5.4 Instant / product)
+    searchResultGroup: dedupe(groupResults, 'url'),  // structured {title, url, snippet, resultSource}
+    safeUrls: [...new Set(safe)],
+    resultSourceCounts: Object.fromEntries(pipes),   // {bright:3, labrador:1, bing:1} — retrieval-pipe attribution
+    resolvedModelSlug,                               // the TRUE serving model (e.g. "gpt-5-5")
+  };
 }
 
 /** PURE + testable: pull Perplexity's displayed searches out of region text lines. */
@@ -137,6 +220,17 @@ function dedupe(arr) {
     if (!seen.has(k)) { seen.add(k); out.push(s); }
   }
   return out;
+}
+
+// Engine-self + map-widget attribution hosts are NOT citations — ChatGPT's embedded local-pack
+// map leaks mapbox/openstreetmap links into the answer's <a> chips, which silently inflated the
+// panel's "cited sources". PURE + testable.
+const NOISE_HOSTS = /(^|\.)(chatgpt\.com|openai\.com|oaiusercontent\.com|bing\.com|google\.com|mapbox\.com|openstreetmap\.org)$/i;
+export function dropNoiseUrls(urls = []) {
+  return urls.filter((u) => {
+    try { return !NOISE_HOSTS.test(new URL(String(u).startsWith('http') ? u : `https://${u}`).hostname.replace(/^www\./, '')); }
+    catch { return false; }
+  });
 }
 
 // ChatGPT's reasoning "search trace" mixes two different things: the natural-language fan-out
@@ -221,9 +315,24 @@ function dedupeRanked(items) {
   return out.slice(0, 10);
 }
 
-async function looksBlocked(page) {
-  const t = (await page.content().catch(() => '')).toLowerCase();
-  return /verify you are human|unusual traffic|just a moment|enable javascript|captcha|consent\.google/.test(t);
+// Read the page's VISIBLE text (innerText, not markup — script bodies would false-positive) and
+// classify wall states: anti-bot interstitials AND chatgpt.com's own throttle pages ("Our systems
+// have detected unusual activity…"), which used to slip through as silent empties and burn the
+// full answer-wait per prompt while the loop re-hammered a throttled session.
+const EXTRA_BLOCK_RE = /verify you are human|just a moment|enable javascript|captcha|consent\.google/i;
+async function wallCheck(page) {
+  // Scope to <main> when it exists: the sidebar's chat-history titles are user-adjacent text
+  // that could trip wall patterns; an interstitial page has no <main> and falls back to body.
+  let t = await page.evaluate(() => { const el = document.querySelector('main') || document.body; return (el && el.innerText) || ''; }).catch(() => '');
+  if (!t) t = (await page.content().catch(() => '')).replace(/<script[\s\S]*?<\/script>/gi, '');
+  const text = String(t).slice(0, 6000);
+  // Excerpt = the MATCHED phrase's neighborhood, never the top of the page — halt logs must show
+  // WHAT tripped the classifier or true/false positives can't be audited (caught live 2026-07-14).
+  const m = hardWallMatch(text);
+  if (m) return { blocked: true, text: m.excerpt };
+  const x = EXTRA_BLOCK_RE.exec(text);
+  if (x) return { blocked: true, text: text.slice(Math.max(0, x.index - 60), x.index + 140).replace(/\s+/g, ' ').trim() };
+  return { blocked: false, text: '' };
 }
 
 // The 2026 ChatGPT composer has a REASONING-EFFORT chip (a button[aria-haspopup="menu"] showing the
@@ -302,8 +411,17 @@ async function waitForAnswer(page, maxMs = 150000, minMs = 8000) {
       // ChatGPT shows a Stop control WHILE streaming; it flips back to Send when generation is done.
       const streaming = !!document.querySelector('[data-testid="stop-button"], button[aria-label*="Stop" i]');
       const hrefs = lastTurn ? [...lastTurn.querySelectorAll('a[href^="http"]')].map((a) => a.href) : [];
-      return { count: turns.length, txt: lastTurn ? (lastTurn.innerText || '') : '', streaming, hrefs };
-    }).catch(() => ({ count: 0, txt: '', streaming: false, hrefs: [] }));
+      const wallEl = document.querySelector('main') || document.body;
+      const body = ((wallEl && wallEl.innerText) || '').slice(0, 4000);
+      return { count: turns.length, txt: lastTurn ? (lastTurn.innerText || '') : '', streaming, hrefs, body };
+    }).catch(() => ({ count: 0, txt: '', streaming: false, hrefs: [], body: '' }));
+    // Wall watch: while no substantial answer has streamed, a throttle interstitial / error shell
+    // means nothing is coming — bail NOW instead of burning the rest of the wait per prompt (the
+    // silent-empty path that used to let a KeepAlive loop hammer a throttled session for hours).
+    if ((snap.txt || '').length < 120) {
+      const wm = hardWallMatch(snap.body || '');
+      if (wm) return { answer: '', searchTrace: [...trace], answerLinks: [...links], wall: wm.excerpt };
+    }
     if (snap.count < 2) continue; // assistant turn not rendered yet
     for (const m of snap.txt.matchAll(TRACE_RE)) trace.add((m[1] + m[2]).replace(/\s+/g, ' ').trim());
     for (const h of snap.hrefs) links.add(h); // the answer's REAL citation chips (clean, not trace noise)
@@ -328,7 +446,7 @@ async function waitForAnswer(page, maxMs = 150000, minMs = 8000) {
  *  so the authenticated /backend-api/conversation fan-out + citations are actually readable.
  *  `beforeSend(page)` is an optional hook (e.g. select the reasoning tier); it returns the model
  *  label actually used, recorded on the row for an honest per-tier atlas. */
-export async function captureFanout(prompt, { engine = 'chatgpt', timeoutMs = 45000, headful = false, settleMs = 8000, beforeSend = null, minAnswerMs = 8000 } = {}) {
+export async function captureFanout(prompt, { engine = 'chatgpt', timeoutMs = 45000, headful = false, settleMs = 8000, beforeSend = null, minAnswerMs = 8000, screenshotAfter = false } = {}) {
   const L = await launchBrowser({ headless: !headful, stealth: true });
   if (L.status) return { status: L.status, prompt, engine, subqueries: [] };
   const browser = L.browser;
@@ -338,7 +456,7 @@ export async function captureFanout(prompt, { engine = 'chatgpt', timeoutMs = 45
       ? (browser.contexts()[0] || await browser.newContext({ viewport: { width: 1366, height: 900 } })) // logged-in session
       : await browser.newContext({ viewport: { width: 1366, height: 900 } });
     page = await context.newPage();
-    return await captureOnPage(page, { engine, prompt, timeoutMs, settleMs, beforeSend, minAnswerMs });
+    return await captureOnPage(page, { engine, prompt, timeoutMs, settleMs, beforeSend, minAnswerMs, screenshotAfter });
   } finally {
     try { if (page) await page.close().catch(() => {}); } catch { /* */ }
     // On CDP, browser.close() only DISCONNECTS — the persistent logged-in Chrome keeps running.
@@ -389,7 +507,7 @@ export async function captureFanoutBatch(specs = [], { concurrency = 3, headful 
 /** Per-PAGE capture core — everything EXCEPT browser/context/page lifecycle, so it can run in one tab
  *  (captureFanout) or many concurrent tabs (captureFanoutBatch). The page must already exist; the
  *  caller owns closing it. Network taps + CDP session are per-page, so concurrent tabs never cross-talk. */
-async function captureOnPage(page, { engine = 'chatgpt', prompt, timeoutMs = 45000, settleMs = 8000, beforeSend = null, minAnswerMs = 8000 }) {
+async function captureOnPage(page, { engine = 'chatgpt', prompt, timeoutMs = 45000, settleMs = 8000, beforeSend = null, minAnswerMs = 8000, screenshotAfter = false }) {
   const net = [];
   const bodyPromises = [];
   page.on('request', r => { try { if (SEARCH_HINTS.some(h => h.test(r.url()))) net.push({ url: r.url(), postData: r.postData() || '' }); } catch { /* */ } });
@@ -418,16 +536,37 @@ async function captureOnPage(page, { engine = 'chatgpt', prompt, timeoutMs = 450
     ? 'https://chatgpt.com/?temporary-chat=true'
     : 'https://www.perplexity.ai/';
   await page.goto(target, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-  if (await looksBlocked(page)) return { status: 'blocked', prompt, engine, subqueries: [] };
+  const wall0 = await wallCheck(page);
+  if (wall0.blocked) return { status: 'blocked', blockText: wall0.text, prompt, engine, subqueries: [] };
   let modelUsed = null;
   if (beforeSend) { try { modelUsed = await beforeSend(page); } catch { /* tier/model select is best-effort */ } }
   const sent = await typeAndSend(page, prompt, engine === 'perplexity' ? 'textarea' : '#prompt-textarea');
   if (!sent) return { status: 'no-input', prompt, engine, subqueries: [] };
 
   // ChatGPT: WAIT for generation to finish (searches take ~50s), harvesting the search trace.
-  let answer = '', searchTrace = [], answerLinks = [];
-  if (engine.startsWith('chatgpt')) { const w = await waitForAnswer(page, 150000, minAnswerMs); answer = w.answer; searchTrace = w.searchTrace; answerLinks = w.answerLinks || []; }
+  let answer = '', searchTrace = [], answerLinks = [], wallText = '';
+  if (engine.startsWith('chatgpt')) { const w = await waitForAnswer(page, 150000, minAnswerMs); answer = w.answer; searchTrace = w.searchTrace; answerLinks = w.answerLinks || []; wallText = w.wall || ''; }
   else await page.waitForTimeout(settleMs);
+
+  // Optional post-answer screenshot (the prospect-deck "live ChatGPT answer" proof shot).
+  // Clipped to the CONVERSATION COLUMN ONLY — the logged-in sidebar lists client chat titles
+  // and must never appear in anything a prospect might see. Gated on a real answer so a wall
+  // or an empty run can never hand back a login-page screenshot. Base64 (not Buffer) so a
+  // caller that JSON-serializes the rec doesn't explode; stampObservation builds fresh rows,
+  // so this field never enters the NDJSON accrual.
+  let shotJpeg = null;
+  if (screenshotAfter && engine.startsWith('chatgpt') && answer && answer.length > 40) {
+    try {
+      const el = await page.$('main');
+      const box = el ? await el.boundingBox() : null;
+      if (box) {
+        const clip = { x: Math.max(0, box.x), y: Math.max(0, box.y), width: Math.min(box.width, 1200), height: Math.min(box.height, 1100) };
+        let buf = await page.screenshot({ type: 'jpeg', quality: 55, clip });
+        if (buf.length > 130 * 1024) buf = await page.screenshot({ type: 'jpeg', quality: 35, clip });
+        shotJpeg = buf.toString('base64');
+      }
+    } catch { shotJpeg = null; }
+  }
   await Promise.allSettled(bodyPromises);    // drain response.text() reads
   await Promise.allSettled(cdpBodyPromises); // drain the CDP full-body fetches (the streamed conversation)
 
@@ -447,24 +586,28 @@ async function captureOnPage(page, { engine = 'chatgpt', prompt, timeoutMs = 450
   // Prefer the answer's REAL citation chips (<a href> in the final turn) — they're what ChatGPT
   // actually cited. The search trace also lists sites it merely *explored* ("Searching arxiv.org")
   // and never cited; use those only as a fallback when no chips rendered.
-  const SELF_HOSTS = /(^|\.)(chatgpt\.com|openai\.com|oaiusercontent\.com|bing\.com|google\.com)$/i;
   const linkDomains = answerLinks
-    .map((u) => { try { const h = new URL(u).hostname.replace(/^www\./, ''); return SELF_HOSTS.test(h) ? '' : 'https://' + h; } catch { return ''; } })
+    .map((u) => { try { return 'https://' + new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } })
     .filter(Boolean);
-  const chipCites = dedupe([...(cites.urls || []), ...linkDomains]);
-  const citeUrls = chipCites.length ? chipCites : dedupe(traceDomains);
+  const chipCites = dropNoiseUrls(dedupe([...(cites.urls || []), ...linkDomains]));
+  const citeUrls = chipCites.length ? chipCites : dropNoiseUrls(dedupe(traceDomains));
   const ranked = engine.startsWith('chatgpt') ? parseRankedAnswer(answer) : [];
   const sturm = extractSturm(net); // Edward-Sturm SOURCE-LEVEL pull from the conversation JSON
   // ok when we got a real answer (ChatGPT) or real sub-queries (Perplexity) — never a false empty.
   const ok = engine.startsWith('chatgpt') ? answer.length > 40 : subs.length > 0;
+  // No answer + no wall seen mid-wait → one last page-level look. Distinguishing 'blocked' from
+  // 'empty' is what lets the runner stamp a cooldown instead of re-hammering a throttled session.
+  if (!ok && !wallText) { const wc = await wallCheck(page); if (wc.blocked) wallText = wc.text; }
   const rec = {
-    status: ok ? 'ok' : 'empty', prompt, engine, model: modelUsed,
+    status: ok ? 'ok' : (wallText ? 'blocked' : 'empty'), prompt, engine, model: modelUsed,
+    ...(wallText ? { blockText: wallText } : {}),
     subqueries: subs, ranked,
     answer: answer.slice(0, 16000), answerExcerpt: answer.slice(0, 280),
     searchTrace,               // the live "Searched/Searching X" trace lines, verbatim (fan-out + sources)
     sturm,                     // source-level: { searchModelQueries, contentReferences:[{url,title}], safeUrls }
     fetchedUrls: answerLinks,  // every URL the final answer linked (the sites it actually fetched)
     capturedAt: new Date().toISOString(),
+    ...(shotJpeg ? { shotJpeg } : {}),
   };
   if (citeUrls.length) rec.citations = { urls: citeUrls, results: cites.results || [] }; // fan-out → cited-source join
   return rec;

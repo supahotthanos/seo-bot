@@ -1,7 +1,7 @@
 // seo-bot · connect/google — one-click "sign and connect" for Google.
 //
 // Runs the OAuth 2.0 LOOPBACK (installed-app) flow: opens the consent screen in the
-// browser, the user signs in once with you@your-agency.com and approves, and we
+// browser, the user signs in once with founders@cnai.digital and approves, and we
 // store a long-lived REFRESH TOKEN per client. After that, GA4 / GSC / Business
 // Profile calls mint short-lived access tokens silently — no more sign-in.
 //

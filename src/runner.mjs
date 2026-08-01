@@ -22,7 +22,11 @@ export const RUNNER_VERSION = (() => {
 })();
 
 // CLOSED enum — store/CONTRACT.md §3.12. New types require a runner release.
-export const WORK_ORDER_TYPES = Object.freeze(['sync-dashboard', 'weekly-run', 'first-audit']);
+// precall-audit (2026-07-13): call-ammo lane — a CONFIRMED lead's site gets an audit +
+// proposals + published bundle + a Slack C-suite briefing before the sales call. The
+// prospect never becomes a fleet client (no config file, cms locked to dryrun in
+// validation — the payload cannot inject a live-write adapter).
+export const WORK_ORDER_TYPES = Object.freeze(['sync-dashboard', 'weekly-run', 'first-audit', 'precall-audit']);
 
 // first-audit configs arrive in the order payload (untrusted): only the dry-run adapter and
 // the PR-only adapters are accepted. Live-write CMS types (wordpress, anything unknown) are
@@ -101,6 +105,25 @@ export async function validateWorkOrder(order, { org = '_default' } = {}) {
     return { ok: true, cfg };
   }
 
+  if (t === 'precall-audit') {
+    const p = order.payload || {};
+    const domain = String(p.domain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '');
+    if (!/^[a-z0-9][a-z0-9.-]{2,80}\.[a-z]{2,}$/.test(domain)) return { ok: false, reason: 'precall-audit:bad-domain' };
+    if (p.callbackUrl != null && !/^https:\/\/\S+$/i.test(String(p.callbackUrl))) return { ok: false, reason: 'precall-audit:bad-callback' };
+    let cfg;
+    try {
+      const { buildConfig } = await import('./config.mjs');
+      // cms is HARDCODED dryrun — a lead payload can never select an adapter; the slug is
+      // lead-prefixed so prospects stay visually distinct from real clients everywhere.
+      cfg = buildConfig({
+        name: `lead-${domain.replace(/[^a-z0-9]+/g, '-')}`.slice(0, 60).replace(/-+$/, ''),
+        brand: String(p.name || domain).slice(0, 80),
+        domain, cms: { type: 'dryrun' }, vertical: 'medspa', audit: { maxPages: 25 },
+      });
+    } catch (e) { return { ok: false, reason: `precall-audit:invalid:${String(e && e.message || e).slice(0, 120)}` }; }
+    return { ok: true, cfg };
+  }
+
   // sync-dashboard | weekly-run act on an EXISTING local client config by name.
   if (typeof order.client !== 'string' || !SEG_RE.test(order.client)) return { ok: false, reason: 'malformed-order:client' };
   return { ok: true };
@@ -110,7 +133,7 @@ export async function validateWorkOrder(order, { org = '_default' } = {}) {
 // Dispatch — closed map, existing gated entry points only.
 // ---------------------------------------------------------------------------
 
-const DEFAULT_EXECUTORS = {
+export const DEFAULT_EXECUTORS = {
   // dashboard <client> --sync : push pending → pull decisions. No apply pass here — approved
   // decisions execute through the weekly routine / an explicit human `apply-approved`.
   'sync-dashboard': async (order, ctx) => {
@@ -145,12 +168,151 @@ const DEFAULT_EXECUTORS = {
     const pushed = await pushDashboard(cfg, { log: ctx.log, runId: order.id });
     return { client: cfg.name, auditScore: audit.score, pending: pushed?.count ?? 0, tiers: pushed?.tiers ?? null };
   },
+  // CALL AMMO: audit + proposals + published bundle for a CONFIRMED lead, then a Slack
+  // C-suite briefing (and an optional https callback so the CRM side can text the link).
+  // Everything is best-effort after the audit itself — a Slack hiccup never fails the order.
+  'precall-audit': async (order, ctx) => {
+    const cfg = ctx.cfg;
+    if (!cfg) throw new Error('precall-audit: validated config missing');
+    const p = order.payload || {};
+    const { notifyTargets, postSlack, buildCallAmmoMessage } = await import('./notify.mjs');
+    const t = notifyTargets({}, process.env);
+    // The deliverable is a DEDICATED prospect audit deck (prospects/* store namespace,
+    // /prospect/<slug>?k=<token> on the dashboard) — never the ongoing client-report page.
+    // A lead's audit must not land on or next to client data, even when the domain already
+    // IS a client. Stays '' until the deck actually publishes (failure path sends '').
+    let reportUrl = '';
+    // GHL text-delivery lane: Ansh has no Slack seat, so the callback IS the primary
+    // channel for the founders — Slack is the secondary receipt. Fire on both ok AND
+    // failed so a red audit still texts the team (per GHL session's contract).
+    const fireCallback = async (envelope) => {
+      if (!p.callbackUrl) return { ok: false, note: 'no callbackUrl' };
+      // SSRF guard: only POST to hosts on the operator's explicit allowlist. Defaults
+      // include the LC/GHL webhook hostnames the CRM uses today; add more via env.
+      const allow = String(process.env.SEO_BOT_CALLBACK_HOSTS || 'services.leadconnectorhq.com,leadconnectorhq.com,rest.gohighlevel.com,services.msgsndr.com')
+        .split(',').map((h) => h.trim()).filter(Boolean);
+      let host = ''; try { host = new URL(p.callbackUrl).host.toLowerCase(); } catch { return { ok: false, note: 'bad-url' }; }
+      if (!allow.some((h) => host === h || host.endsWith(`.${h}`))) return { ok: false, note: `host not allowlisted: ${host} (add via SEO_BOT_CALLBACK_HOSTS)` };
+      try {
+        // cbToken (GHL 2026-07-15): the inbound webhook is a capability URL with no auth of its
+        // own — anyone holding the URL could text the founders a spoofed "call ammo" link. The
+        // GHL workflow gates on this shared constant; additive key, 9-key contract unchanged.
+        const cbToken = process.env.SEO_BOT_CB_TOKEN || '';
+        const res = await fetch(p.callbackUrl, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...envelope, ...(cbToken ? { cbToken } : {}) }), signal: AbortSignal.timeout(8000),
+        });
+        return { ok: res.ok, status: res.status };
+      } catch (e) { return { ok: false, note: String(e && e.message || e).slice(0, 120) }; }
+    };
+    // 140-char TL;DR that fits an SMS body (the founders' text template pastes it verbatim).
+    const successSummary = (score, proposals) => {
+      const n = proposals.length;
+      const wnr = (proposals[0]?.type || '').slice(0, 40);
+      const s = `Audit ${score}/100 · ${n} fix${n === 1 ? '' : 'es'}${wnr ? ` (top: ${wnr})` : ''}`;
+      return s.length > 140 ? s.slice(0, 137) + '…' : s;
+    };
+    // email rides along with phone: GHL's Create-contact step needs at least one of them to
+    // upsert, and phoneless Typeform leads exist — without email both founder texts skip.
+    const echo = { domain: cfg.domain, name: p.name || '', phone: p.phone || '', email: p.email || '', apptTime: p.apptTime || '' };
+
+    try {
+      const { buildProspectAudit, ammoFactsFor } = await import('./prospect-audit.mjs');
+
+      // SAME-DOMAIN DEDUPE (GHL 2026-07-15): a reschedule bounces the lead back through
+      // CONFIRMED and fires a duplicate order. A deck fresher than the window is RE-SERVED —
+      // same URL/token (founders may already hold the link), new apptTime in the card — instead
+      // of burning a full re-audit. Window: SEO_BOT_PRECALL_DEDUPE_HOURS (default 24; 0 = off).
+      const slug = String(cfg.domain).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+      const dedupeHours = Number(process.env.SEO_BOT_PRECALL_DEDUPE_HOURS ?? 24);
+      const prior = (dedupeHours > 0 && ctx.store && typeof ctx.store.getJson === 'function')
+        ? await ctx.store.getJson(`prospects/${ctx.org || '_default'}/${slug}.json`) : null;
+      const ageMs = prior && prior.generatedAt ? Date.now() - Date.parse(prior.generatedAt) : Infinity;
+      if (prior && prior.token && typeof prior.html === 'string' && ageMs >= 0 && ageMs < dedupeHours * 3600 * 1000) {
+        reportUrl = `${t.dashboardUrl}/prospect/${prior.slug || slug}?k=${prior.token}`;
+        const hours = Math.max(1, Math.round(ageMs / 3600000));
+        const payloadMsg = buildCallAmmoMessage({
+          name: p.name || null, domain: cfg.domain, phone: p.phone || null, apptTime: p.apptTime || null,
+          score: prior.auditScore ?? null, bySeverity: {}, byRule: prior.auditByRule || [], proposals: [],
+          reportUrl, facts: ammoFactsFor(prior),
+        });
+        let slack = { delivered: false, note: 'no transport' };
+        try { slack = await postSlack({ botToken: t.botToken, channel: t.channels.csuite, webhook: t.webhook }, payloadMsg); } catch { /* mirror, not gate */ }
+        ctx.log(`  precall-audit: dedupe — re-served ${hours}h-old deck (no re-audit); slack ${slack.delivered ? 'delivered' : `not delivered (${slack.note})`}`);
+        const cb = await fireCallback({ event: 'precall-audit.completed', status: 'ok', ...echo, reportUrl, summary: `Audit ${prior.auditScore ?? '?'}/100 · deck ready (lead re-confirmed — ${hours}h-old audit re-served)`.slice(0, 140) });
+        ctx.log(`  precall-audit: callback ${cb.ok ? 'delivered' : `not delivered (${cb.note || cb.status})`}`);
+        return { client: cfg.name, domain: cfg.domain, score: prior.auditScore ?? null, deduped: true, reportUrl, slackDelivered: slack.delivered, callbackDelivered: !!cb.ok };
+      }
+
+      const { runAudit } = await import('./audit.mjs');
+      const { saveReport } = await import('./report.mjs');
+      const { propose } = await import('./decide.mjs');
+      const audit = await runAudit(cfg, { log: ctx.log });
+      saveReport(audit);
+      let proposals = [];
+      try { const pr = await propose(cfg, { log: ctx.log }); proposals = pr?.proposals || []; } catch { /* ammo ships on the audit alone */ }
+
+      // ON-DEMAND MARKET SAMPLE (Shubh 2026-07-24: "when a website comes through as a lead we
+      // check their city and run that first"): before the deck is graded, live-sample the
+      // AI-answer panel FOR THE LEAD'S OWN METRO on this seat's logged-in capture Chrome, so
+      // the deck claims a number measured for their market instead of "not sampled yet".
+      // Governed + fail-soft: skips cleanly without a CDP seat / under the committed
+      // capture-pause switch / when the metro is already freshly covered; the burst is a
+      // capped slice of the CANONICAL money intents (best/botox), and the capture governor's
+      // wall detection + cooldown apply exactly as in the accrual lanes. Any failure here
+      // just means the deck falls back to the honest unmeasured callout.
+      const { makePrecallPanelSampler } = await import('./measure/precall-panel-sampler.mjs');
+      const panelSampler = makePrecallPanelSampler({ domain: cfg.domain });
+
+      // Full teardown deck (website health + SEO + AI visibility + booking): call-1 ammo AND
+      // the call-3 website-upsell collateral. Probes are fail-soft inside buildProspectAudit.
+      const deck = await buildProspectAudit(cfg, { audit, proposals, panelSampler, log: ctx.log });
+      let published = false;
+      if (ctx.store && typeof ctx.store.putJson === 'function') {
+        const path = `prospects/${ctx.org || '_default'}/${deck.slug}.json`;
+        let put = await ctx.store.putJson(path, deck, `prospect deck ${cfg.domain}`);
+        if (!put || !put.ok) put = await ctx.store.putJson(path, deck, `prospect deck ${cfg.domain} (retry)`);
+        published = !!(put && put.ok);
+        if (!published) ctx.log(`  precall-audit: deck publish FAILED (${(put && put.error) || '?'})`);
+      } else ctx.log('  precall-audit: no store in ctx — deck not published');
+      if (published) reportUrl = `${t.dashboardUrl}/prospect/${deck.slug}?k=${deck.token}`;
+
+      const payloadMsg = buildCallAmmoMessage({
+        name: p.name || null, domain: cfg.domain, phone: p.phone || null, apptTime: p.apptTime || null,
+        score: audit.score, bySeverity: audit.bySeverity, byRule: audit.byRule || [], proposals,
+        reportUrl: reportUrl || null, facts: ammoFactsFor(deck),
+      });
+      let slack = { delivered: false, note: 'no transport' };
+      try { slack = await postSlack({ botToken: t.botToken, channel: t.channels.csuite, webhook: t.webhook }, payloadMsg); } catch { /* mirror, not gate */ }
+      ctx.log(`  precall-audit: slack ${slack.delivered ? 'delivered' : `not delivered (${slack.note})`}`);
+      // Fire the founders' text AFTER Slack — Slack is the receipt, text is primary delivery.
+      const cb = await fireCallback({ event: 'precall-audit.completed', status: 'ok', ...echo, reportUrl, summary: successSummary(audit.score, proposals) });
+      ctx.log(`  precall-audit: callback ${cb.ok ? 'delivered' : `not delivered (${cb.note || cb.status})`}`);
+      return { client: cfg.name, domain: cfg.domain, score: audit.score, proposals: proposals.length, reportUrl, deckPublished: published, slackDelivered: slack.delivered, callbackDelivered: !!cb.ok };
+    } catch (e) {
+      // Audit blew up: still tell the founders — a red run they never hear about is worse
+      // than the error itself. Slack gets a plain issue (no ammo to show); text gets status:failed.
+      const msg = String(e && e.message || e).slice(0, 140);
+      ctx.log(`  precall-audit: FAILED — ${msg}`);
+      try {
+        const fallback = { text: `❌ Pre-call audit FAILED — ${p.name || cfg.domain}: ${msg}`, blocks: [
+          { type: 'header', text: { type: 'plain_text', text: `❌ Audit failed — ${p.name || cfg.domain}`, emoji: true } },
+          { type: 'section', text: { type: 'mrkdwn', text: `\`${cfg.domain}\` — ${msg}` } },
+        ]};
+        await postSlack({ botToken: t.botToken, channel: t.channels.csuite, webhook: t.webhook }, fallback);
+      } catch { /* mirror, not gate */ }
+      const cb = await fireCallback({ event: 'precall-audit.completed', status: 'failed', ...echo, reportUrl: '', summary: msg });
+      ctx.log(`  precall-audit: failure callback ${cb.ok ? 'delivered' : `not delivered (${cb.note || cb.status})`}`);
+      throw e; // surfaces to handleOrder → status:failed in the store (audit trail preserved)
+    }
+  },
 };
 
 const ACTION_DESC = {
   'sync-dashboard': (o) => `dashboard ${o.client} --sync (push pending → pull decisions)`,
   'weekly-run': (o) => `weekly ${o.client}${o.payload && o.payload.push === false ? '' : ' --push'} (existing weekly routine)`,
   'first-audit': (o) => `first-audit for payload config${o.client ? ` "${o.client}"` : ''} (audit → propose → dashboard push)`,
+  'precall-audit': (o) => `precall-audit for lead site ${(o.payload && o.payload.domain) || '?'} (audit → call ammo → C-suite)`,
 };
 
 /** Small, JSON-safe result summary — never let a huge/cyclic result break the store write. */
@@ -204,7 +366,7 @@ export async function handleOrder(order, { store, org = '_default', runnerId = '
   }
   try {
     log(`  ▶ ${order.type} ${order.client || v.cfg?.name || ''} (${id})`);
-    const result = await exec(order, { log, cfg: v.cfg || null, org, runnerId });
+    const result = await exec(order, { log, cfg: v.cfg || null, org, runnerId, store });
     await finish({ status: 'done', result: safeResult(result) });
     log(`  ✓ done ${id}`);
     return { status: 'done', result: safeResult(result) };

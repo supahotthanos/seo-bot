@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>digital.cnai.seenai.morning</string>
+  <!-- the 9 AM harvest-and-push, fully on the Mini (replaced the laptop Claude task) -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/Users/supahotthanos/seo-bot/scripts/mini-run.sh</string>
+    <string>morning</string>
+  </array>
+  <!-- interval tick; mini-run.sh gates to once/day at >=09:00 (calendar triggers proved
+       unreliable on this box — registered but never fired, 2026-07-13) -->
+  <key>StartInterval</key><integer>1800</integer>
+  <key>StandardOutPath</key><string>/Users/supahotthanos/seo-bot/logs/launchd-morning.out</string>
+  <key>StandardErrorPath</key><string>/Users/supahotthanos/seo-bot/logs/launchd-morning.err</string>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Background</string>
+</dict></plist>

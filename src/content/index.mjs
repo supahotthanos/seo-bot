@@ -4,7 +4,7 @@
 //   content draft <client> <topic>    → LLM-assisted draft from a brief (graceful; never auto-publishes)
 //
 // Nothing here publishes on its own. Drafts land status=draft and route to a
-// one-click-approve queue (you@your-agency.com) for any YMYL/medical/price claim.
+// one-click-approve queue (founders@cnai.digital) for any YMYL/medical/price claim.
 
 import { mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync, readdirSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
@@ -20,6 +20,24 @@ const DEFAULT_SERVICES = ['Botox', 'Dermal fillers', 'Morpheus8', 'HydraFacial',
 export function capProgrammatic(plan = [], max = 200) { return { plan: plan.slice(0, max), dropped: Math.max(0, plan.length - max) }; }
 /** Publish-velocity throttle — burst publishing is a SpamBrain anomaly; cap pages published per run. */
 export function throttlePublish(slugs = [], { maxPerRun = 4 } = {}) { return slugs.slice(0, Math.max(0, maxPerRun || 0)); }
+
+/** Deterministic string-seeded int in [min,max] (FNV-1a). No Math.random: the jitter must be
+ *  reproducible within a week (idempotent re-runs) and in tests. */
+export function seededInt(seedStr, min, max) {
+  let h = 2166136261;
+  for (const c of String(seedStr)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+  h >>>= 0;
+  const lo = Math.min(min, max), hi = Math.max(min, max);
+  return lo + (h % (hi - lo + 1));
+}
+
+/** Jittered weekly publish cap (the recorded June-2026 spec: "3–5/wk, RANDOMIZED" — a fixed
+ *  cap still publishes a metronome cadence; a per-week seeded jitter varies it like a human
+ *  editorial calendar). Seed = client + ISO-week ⇒ stable within a week, varies across weeks. */
+export function jitteredWeeklyCap({ client = '', now = Date.now(), min = 3, max = 5 } = {}) {
+  const week = Math.floor(now / (7 * 86400000));
+  return seededInt(`${client}:${week}`, min, max);
+}
 
 /** Build a service×geo content plan. Compact-keyword BOFU pages + supporting blogs. */
 export function contentPlan(cfg, { log = () => {} } = {}) {

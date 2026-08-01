@@ -13,15 +13,40 @@
 // Verification / rate-limit / anti-bot interstitials → STOP. (Not "no answer" — those are handled
 // by the existing block-aware path.)
 const CHALLENGE_RE = new RegExp([
-  'unusual traffic', 'automated queries', "are you a robot", 'verify.{0,20}human',
+  'unusual traffic', 'unusual activity', 'automated queries', "are you a robot", 'verify.{0,20}human',
   'complete a (captcha|security check|puzzle)', 'recaptcha/api', 'hcaptcha', 'cf-challenge',
   'access denied', 'rate.?limit(ed)?', 'too many requests', '\\b429\\b', 'try again later',
-  'verify your identity', 'confirm you are human', 'suspicious activity',
+  'verify your identity', 'confirm you are human', 'suspicious activity', 'temporarily blocked',
 ].join('|'), 'i');
 
 /** PURE: is this page/answer text a human-verification/anti-bot CHALLENGE (→ halt + cooldown)?
  *  This is the Google/Perplexity IP-danger signal — NOT ChatGPT's soft message cap (see isRateLimit). */
 export function isChallenge(text = '') { return CHALLENGE_RE.test(String(text || '')); }
+
+// PAGE-LEVEL wall — the phrasings chatgpt.com actually renders when it refuses to serve
+// ("Our systems have detected unusual activity…", "Too many requests…", the something-went-wrong
+// shell). Deliberately NARROWER than isRateLimit for page text: normal logged-in chrome contains
+// benign matches for the answer-level patterns ("Upgrade to Plus" in the sidebar), so page checks
+// must never use isRateLimit — that would classify every healthy page as a wall.
+const HARD_WALL_RE = new RegExp([
+  'unusual activity', 'unusual traffic', 'too many requests', 'temporarily blocked',
+  'please slow down', 'sending messages too quickly', "you.?ve reached (our|the|your)[^.]{0,40}limit",
+  'something went wrong', '\\b429\\b',
+].join('|'), 'i');
+
+/** PURE: is this PAGE text one of ChatGPT's refuse-to-serve walls (throttle interstitial, error
+ *  shell, or any challenge)? The capture layer polls this so a walled prompt aborts in seconds
+ *  instead of burning its full answer-wait, and the runner turns it into halt + cooldown. */
+export function isHardWall(text = '') { return HARD_WALL_RE.test(String(text || '')) || isChallenge(text); }
+
+/** PURE: the wall match WITH its neighborhood — so halt logs show the phrase that actually
+ *  tripped the classifier (auditable true/false positives), never just the top of the page. */
+export function hardWallMatch(text = '') {
+  const s = String(text || '');
+  const m = HARD_WALL_RE.exec(s) || CHALLENGE_RE.exec(s);
+  if (!m) return null;
+  return { phrase: m[0], excerpt: s.slice(Math.max(0, m.index - 60), m.index + 140).replace(/\s+/g, ' ').trim() };
+}
 
 // ChatGPT's per-ACCOUNT message cap ("you've reached your GPT-x limit, try again at ...") — a SOFT
 // quota, not an IP-ban risk. Response: stop that engine, resume after the reset. Never scary.

@@ -55,6 +55,17 @@ const DEFAULTS = {
   servicePathRe: null,   // e.g. "/(services|treatments)/" — gates service-page rules
   locationPathRe: null,  // e.g. "/(locations|[a-z-]+-[a-z]{2})/" — gates location-page rules
   listings: { canonicalNap: null, targets: [] }, // local-citations source of truth (see `citations`)
+  // deepAudit: the founders+AI Google-local lane (`deep-audit <client>`). competitors are
+  // STRUCTURED ({ name, domain }) — distinct from the name-only `competitors` tracking list —
+  // because the GBP public capture queries each brand's knowledge panel by name. city anchors
+  // the panel queries; founder routes the weekly Slack todo card. All optional: missing values
+  // surface as setup TASKS in the action plan (fail-closed 'unknown'), never guesses.
+  deepAudit: { city: null, competitors: [], founder: { name: null, slackUserId: null } },
+  // goals: the Rank Loop's outcome targets (Layer 2, src/outcomes.mjs). northStar names a
+  // METRICS id (default: map-pack share of local voice); targets are OWNER-set, e.g.
+  // { metric:'northStar.solv', op:'>=', value:40, by:'2026-10-01' }. The strategy agent may
+  // PROPOSE target changes in its memo — it can never write them.
+  goals: { northStar: 'northStar.solv', targets: [] },
   audit: {
     maxPages: 40,
     includePaths: [],
@@ -107,7 +118,15 @@ export function loadConfig(nameOrPath) {
   }
   if (!existsSync(file)) throw new Error(`Config not found: ${file}`);
 
-  const raw = JSON.parse(readFileSync(file, 'utf-8'));
+  let raw = JSON.parse(readFileSync(file, 'utf-8'));
+  // Machine-local overlay (gitignored): config/<name>.local.json deep-merges OVER the tracked
+  // config. This is where machine-specific values live (cms.repoPath differs between the
+  // Windows laptop and the Mac Mini) — one tracked config serves every host, no dirty trees.
+  const localFile = file.replace(/\.json$/, '.local.json');
+  if (localFile !== file && existsSync(localFile)) {
+    try { raw = deepMerge(raw, JSON.parse(readFileSync(localFile, 'utf-8'))); }
+    catch (e) { throw new Error(`Config overlay ${localFile} is not valid JSON: ${e.message}`); }
+  }
   const cfg = deepMerge(DEFAULTS, raw);
 
   // --- validate + normalize ---
@@ -128,7 +147,9 @@ const NON_CLIENT_CONFIGS = new Set(['source-trust', 'google-oauth']);
 export function listConfigs() {
   if (!existsSync(CONFIG_DIR)) return [];
   return readdirSync(CONFIG_DIR)
-    .filter((f) => f.endsWith('.json') && !f.startsWith('example'))
+    // *.local.json files are machine-local OVERLAYS of a client config, never clients
+    // themselves (loadConfig merges them onto their base — see the overlay block above).
+    .filter((f) => f.endsWith('.json') && !f.endsWith('.local.json') && !f.startsWith('example'))
     .map((f) => f.replace(/\.json$/, ''))
     .filter((name) => !NON_CLIENT_CONFIGS.has(name));
 }

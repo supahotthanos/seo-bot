@@ -135,6 +135,9 @@ const BUNDLE_HINTS = {
   local: (c) => `local ${c}`,
   priors: () => 'priors --rebuild',
   autonomy: () => 'schedule install',
+  founderTodo: (c) => `deep-audit ${c}`,
+  scoreboard: (c) => `scoreboard ${c}`,
+  bets: (c) => `bets ${c}`,
 };
 
 function arrAt(obj, path) {
@@ -346,6 +349,28 @@ export async function buildDashboardBundle(cfg, { root = ROOT, maxBytes = MAX_BU
   const local = readJson(join(rdir, 'local.json'), null);
   const priors = readJson(join(root, 'reports', '_portfolio', 'priors.json'), null);
 
+  // founders+AI lane: the action plan (deep-audit → src/action-plan.mjs) as-is — the /todo
+  // page renders founderWeek/founderBacklog/botLane with ledger-backed statuses.
+  const founderTodo = readJson(join(rdir, 'action-plan.json'), null);
+
+  // Rank Loop: the outcome scoreboard as-is + a compact bets view (record, open, recent
+  // scored) collapsed from the append-only bet ledger.
+  const scoreboardSec = readJson(join(rdir, 'scoreboard.json'), null);
+  const betRows = readNdjson(join(rdir, 'bets.ndjson'));
+  const bets = betRows ? (() => {
+    const latest = new Map();
+    for (const b of betRows) if (b?.id) latest.set(b.id, { ...(latest.get(b.id) || {}), ...b });
+    const all = [...latest.values()];
+    const by = {};
+    for (const b of all) by[b.status] = (by[b.status] || 0) + 1;
+    const judged = (by.hit || 0) + (by.miss || 0);
+    return {
+      record: { ...by, judged, hitRate: judged ? Math.round(((by.hit || 0) / judged) * 100) : null },
+      open: all.filter((b) => ['proposed', 'approved', 'active'].includes(b.status)),
+      scored: all.filter((b) => ['hit', 'miss', 'inconclusive'].includes(b.status)).slice(-20),
+    };
+  })() : null;
+
   // autonomy: null-safe over heartbeat/history/install-marker files; treated as "missing"
   // (null + hint) only when NO scheduler artifact exists at all — same coverage honesty.
   const autoSec = buildAutonomySection({ root });
@@ -368,6 +393,9 @@ export async function buildDashboardBundle(cfg, { root = ROOT, maxBytes = MAX_BU
     local: local ?? miss('local'),
     priors: priors ?? miss('priors'),
     autonomy: autonomy ?? miss('autonomy'),
+    founderTodo: founderTodo ?? miss('founderTodo'),
+    scoreboard: scoreboardSec ?? miss('scoreboard'),
+    bets: bets ?? miss('bets'),
   };
   clampBundle(bundle, { maxBytes });
 

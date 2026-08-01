@@ -1,88 +1,225 @@
-# seo-bot
+# seo-bot — plug-and-play SEO/AEO executor
 
-**An autonomous SEO/AEO engine.** It audits a site, ships fixes as pull requests behind a verifier-consensus gate, writes voice-calibrated blog posts through anti-slop quality gates, and measures how visible you are inside AI answers (ChatGPT, Google AI Overviews, Perplexity) — using real browsers, no SEO-tool APIs, no API keys required.
+> **New here? [QUICKSTART.md](QUICKSTART.md)** — fresh laptop → fully autonomous in ~15 minutes
+> (clone → `setup yoursite.com` → `doctor` → `schedule install`). SETUP.md is the deeper runbook.
 
-`1,349 unit checks · 9 integration · 12 no-cloud · MIT · Node 18+ · zero runtime deps for the core`
+An in-house, near-zero-cost SEO/AEO agent for **sites you own the DNS for**. It
+audits a site the way AI answer engines actually see it (raw HTML, no JS),
+proposes concrete fixes, applies them through the site's CMS behind a human-approval
+gate, verifies the fix is server-rendered, pings IndexNow, and tracks AI-answer
+visibility over time.
 
----
+> **Why this beats buying OTTO/SearchAtlas:** OTTO's default delivery is a
+> client-side JS pixel that mutates the DOM after load — and AI crawlers
+> (GPTBot/ClaudeBot/PerplexityBot) don't run JS, so they never see those changes.
+> Because **we control the source**, seo-bot writes the *same* fixes into
+> server-rendered HTML, which is strictly better for both Google and AI engines,
+> at $0 in SaaS fees. See `research/inhouse-seo-engine-plan.md` for the full rationale.
 
-## The idea
+## Zero new dependencies
 
-Search is now two games: classic Google rankings and AI-generated answers. Most tooling measures one, hand-waves the other, and asks you to trust dashboards you can't audit. This engine plays both games from first principles, on your own machine, and it is built around one uncomfortable rule: **when it can't verify something, it says so and stops** — no silent guesses, no fake zeros, no auto-publishing anything a lawyer or doctor should have seen first.
+Pure Node ESM + `cheerio` (already in the repo). Runs with plain `node` — no build
+step, no `tsx`, no extra installs. Optional, graceful enhancers:
+`ANTHROPIC_API_KEY` (better fix drafting), `GSC_CREDENTIALS` (Search Console data),
+`INDEXNOW_KEY` (instant Bing/ChatGPT indexing), Playwright chromium (AI-visibility tracking).
 
-## What it does
+## Command reference (`node bin/seo-bot.mjs <cmd>`)
 
-**Fix your site, safely.**
-Crawl → audit (~90 rule checks incl. schema, answer capsules, internal links, CWV smells) → prioritized proposals (EV-scored) → **verifier consensus** (multiple independent model passes must agree) → **pull request**. Never a direct write. Every change is journaled with a rollback pointer, and a change-magnitude guard + before/after screenshots ride along for anything visual.
+**Onboard a client**
+```
+connect  <client> [--force]        one-click Google OAuth (GA4+GSC+GBP); PKCE + encrypted tokens
+ga4      <client>                   pull GA4 sessions/conversions + AI-referral sessions
+onboard  <domain> [--write-config]  DNS + stack + booking detect + baseline audit + starter config
+worksheet <client>                  the full "bring on a client" sheet (everything combined)
+citations <client>                  local-listings worklist (GBP/Apple/Bing/Boulevard/aggregators/dirs)
+```
+**Optimize on-site**
+```
+audit    <client> [--max N]         crawl raw HTML + run rules (incl. med-spa pack) -> report
+propose  <client>                   audit -> concrete fix proposals (LLM-assisted, slop-resistant)
+apply    <client> [--yes]           apply proposals via the CMS adapter (nextjs PR / wordpress REST)
+run      <client> [--apply --yes] [--no-measure]   THE FULL PIPELINE: pull->audit->decide->apply->
+                                    verify->indexnow->measure->sources->progress-score
+```
+**Content (data-grounded, anti-slop, YMYL one-click-approve)**
+```
+content plan    <client>            service x geo plan (Sturm compact-keyword grid + blogs)
+content draft   <client> "<topic>"  brief-grounded draft (refuses on empty data table)
+content score   <client> <file>     run the hard+soft gates on a draft
+content approve <client> <slug>      human one-click approve (refuses unless publish-eligible)
+content publish <client> [--yes]     open a Next.js PR with approved+gated drafts (human merges)
+```
+**Measure, decide, research**
+```
+measure  <client>                   AI-visibility tracking (no API; drives the real chat apps)
+sources  <client>                   rank what AI engines cite most -> off-site target worklist (no API)
+stats    <client>                   statistical-significance scan over GSC (only act when real)
+verify   <client>                   score 0-100 toward "perfect" (definition-of-done rubric) + gaps
+tactics  [client]                   white/grey/black ranking levers, risk-labeled
+research {tweet|fetch|score} ...     credibility-scored source ingestion (Scrapling stealth)
+```
+**The Rank Loop (founders + AI operating system — no agency required)**
+```
+deep-audit  <client> [--no-capture]  the super audit: site rules + local factor model + PUBLIC
+                                     Google-Business capture + citation liveness + spam-risk
+                                     self-check -> a founder action plan (<=5 tasks/week, each
+                                     evidence-linked; done tasks verify THEMSELVES on the next
+                                     audit and reopen on regression)
+scoreboard  <client>                 weekly outcome snapshot ledger + deltas vs baseline vs your
+                                     targets (map-pack share, clicks, AI presence, leads) with an
+                                     honest stall detector — null means "not measured", never zero
+flight-check [client]               ONE green/amber/red verdict: is every lane alive? (capture
+                                     freshness, artifact ages, heartbeats, store reachability;
+                                     RED escalates itself and exits 1)
+bets        <client> [--approve ID]  the accountable strategy agent: proposes <=3 tracked bets
+                                     ("do X, expect METRIC to move by DATE"), a human approves,
+                                     every bet is scored at its locked horizon — the agent's
+                                     lifetime hit-rate is public in every memo
+```
 
-**Write blogs that don't read like AI slop.**
-Brief → draft → gates: a 40–70-word self-contained answer capsule up top, near-duplicate check against your whole corpus, unsourced-price blocking, weekly publish caps, an AI-pattern lint with one humanizer rewrite pass. The register is **calibrated to the sites that actually rank** — the engine harvests the winners' blogs per market, builds a quantitative voice profile (sentence cadence, question rates, $-concreteness, reading grade), and drafts to match the register, never the words. Clean posts auto-merge their PR; anything YMYL (GLP-1, before/after claims, health/guarantee language) opens a **held PR** for human review, always.
+## Med-spa mode + the recurring cadence
 
-**Measure AI-search visibility without APIs.**
-Real, warm browser profiles ask real questions across ChatGPT, Google AI Overviews, and Perplexity, geo-pinned per city, and log who gets cited, ranked, and linked — with full fan-out traces. Block-aware by design: a bot-walled engine is recorded as *blocked*, never as a fake zero. Includes a SERP radar (top-10 organic per city × money query, page-type fingerprinting) and a query-bank panel with variance decomposition (day vs spelling vs engine) so you know which movement is real.
+Set `"vertical": "medspa"` (+ `servicePathRe`, `locationPathRe`) in a client config to enable the
+14-rule med-spa pack (MedicalBusiness schema, NAP, per-service Offer pricing, YMYL E-E-A-T,
+booking/Reserve action, and **flag-only** legal rules for reviews/before-after/GLP-1/health-claims).
+See `research/medspa-seo-framework.md`.
 
-**Decide with actual statistics.**
-Two-proportion z-tests, Benjamini–Hochberg FDR across concurrent changes, difference-in-differences against control pages, locked evaluation horizons (no peeking), non-inferiority guardrails, and a keep/revert/try-next loop. Every rate ships with a confidence interval and a denominator — an `evidence-audit` command fails CI if any artifact contains a naked point estimate.
+The operation runs itself — **`schedule install`** registers the cadence as Windows Scheduled
+Tasks (wake-tolerant; `schedule status|run|remove` to inspect/trigger/undo):
 
-**Run itself.**
-Weekly/daily routines (launchd on macOS, Task Scheduler on Windows), heartbeats, a three-tier human approvals queue (dashboard-ready JSON bundle + `--local` mode), Slack lanes (approval mirror with one-click deep links; a C-suite channel for big issues with 24h dedupe), and **zero-click client intake**: grant Search Console access to your agency Gmail and the engine onboards the site; invite its GitHub account to the site's repo and the PR lane wires itself (invitations accepted via API — it never clicks email links).
+| When | What runs | Notes |
+|---|---|---|
+| **Per new site** | `setup <domain>` → edit config → `doctor` → `connect` | see QUICKSTART.md |
+| **Daily 09:15** (`seenai-daily`) | AI-visibility measure + content-decay scan + dashboard sync, every client | fail-graceful per step; skips `_`-reserved configs |
+| **Weekly SUN 10:00** (`seenai-weekly`) | full routine: audit → propose → verifier-consensus autopilot → dashboard sync → brief | pushes ONLY for clients with `autopilot.push: true`; everything else queues |
+| **Monthly** | `citations <client>` (manual) | NAP-consistency, Reserve-with-Google, review-policy watch |
+| **Post core-update** | `run` across all clients (manual) | E-E-A-T battery when the algo-update monitor confirms a rollout |
 
-## What it refuses to do
+Every scheduled run writes a heartbeat (`schedule status`, and the dashboard's **Autonomy** tile
+shows green/amber/red honestly — never green on missing data).
 
-These are load-bearing invariants, not settings:
+Off-site actions are flag-and-track (human submits); on-site fixes auto-apply through the gated
+adapters; legal-sensitive med-spa rules never auto-edit.
 
-- **PR-only writes.** No CMS direct-write path exists for auto-apply. WordPress live writes are refused by the experiment engine entirely.
-- **YMYL/legal/money-page changes never auto-apply.** They queue for a human, every time, in every mode.
-- **Fail-closed everywhere.** Unverifiable capture → `blocked`, not 0. Failed screenshot → human review, not auto-pass. Missing consensus → queued, not shipped.
-- **No fabricated authority.** Bylines naming reviewers not in your config fail the gate. Unsourced statistics and prices are blocked.
-- **Polite measurement.** Cooldown stamps persist across processes; circuit breakers halt on challenges; one IP is never hammered.
+## Change only when it's statistically real
 
-## Quickstart
+`src/stats/` is the data-driven controller behind "only change things that move the number."
+A change is judged with a **two-proportion z-test** on CTR/conversion, **gated on a minimum
+sample** (detecting a 10%→11% CTR lift needs ~14.7k impressions/arm — thin data can't judge),
+on a **locked horizon** (judge once, no peeking — peeking inflates false positives 5%→30-40%),
+under **Benjamini-Hochberg FDR** across the batch, with **difference-in-differences vs control
+pages** to subtract a core-update/seasonality tide, a **≥5% practical-effect floor**, and a
+**guardrail override** (a CTR "win" that tanks bookings → revert). Verdict is four-way:
+`keep / revert / try-next / insufficient-data` (+ `hold` during a confirmed core update).
+`try-next` — powered, horizon met, no effect — is the "change something" trigger.
+
+**Why not a 10-minute loop:** you cannot measure significance on minutes of data, and re-judging
+a fixed-horizon test every tick *is* the peeking failure. So stats **decide weekly at locked
+horizons**, not on a wall clock. Research stays daily; only the decision cadence is data-paced.
+
+## Ranking levers — the full spectrum, risk-labeled
+
+`tactics` lists every white/grey/black lever with hat · penalty risk · evidence · routing:
+🟢 auto (bot applies) · 🟡 flag-opt-in (you flip on per-tactic via `tacticsOptIn[]`) · ✋ manual
+(off-site) · ⛔ do-not-automate (penalty/illegal — knowledge only). Manipulation operators
+(e.g. **Jacky Chou** / BrowserBlast) are tracked as **ADVERSARIAL_SIGNAL** (intel about what's
+being sold) but quarantined below the trust threshold so their tactics can never auto-apply;
+fake reviews are a hard legal block regardless of measured lift.
+
+Reports land in `reports/<client>/` (`latest.md`, `proposals-latest.md`, `run-latest.json`).
+
+## Deploy to a NEW site you own (4 steps)
+
+1. `cp config/example.client.json config/<name>.json`
+2. Set `brand`, `domain`, `baseUrl`, `competitors`, `schemaTypesExpected`, `promptPanel`.
+3. Pick the `cms.type`:
+   - `dryrun` — report only (safe default; start here on every site).
+   - `nextjs` — set `repoPath` to the client's Next.js repo; fixes land on a branch + PR.
+   - `wordpress` — set `wpBaseUrl`/`wpUser`/`wpAppPassword` (or `ENV:` indirections); fixes via WP REST API.
+4. `node bin/seo-bot.mjs audit <name>` → review → `run <name> --apply --yes`.
+
+That's the plug-and-play promise: the bot is identical across sites; only the config and the CMS adapter differ.
+
+## The loop (what `run` does)
+
+```
+① pull     GSC (free) — queries, positions, CTR, + the new AI-search rows  → prioritization
+② audit    crawl sitemap, fetch RAW HTML, run every rule (see below)       → findings + score
+③ decide   turn findings + GSC opportunity into concrete fix proposals     → proposals-*.md
+④ apply    write fixes via the CMS adapter (gated by --yes; never auto-merge)
+⑤ verify   re-fetch the live URL as raw HTML — confirm the fix is server-rendered (beats OTTO's pixel)
+⑥ indexnow submit changed URLs to Bing → ChatGPT's web index
+⑦ measure  drive the real ChatGPT/Perplexity/Google-AIO apps, track Visibility/Position/Cited%
+```
+
+## What the audit checks (each = a verified June-2026 signal)
+
+| Rule | Why it matters |
+|---|---|
+| `js-dependence` | **Critical.** AI crawlers don't run JS — client-only content is invisible. |
+| `ai-crawler-block` | **Critical.** robots.txt blocking GPTBot/ClaudeBot/PerplexityBot = invisible in those answers. |
+| `answer-block` | A 40–60 word direct answer up top is the Layer-2 citation lever. |
+| `schema` / `schema-type` | JSON-LD presence/validity + site-level Organization/WebSite entity. |
+| `question-headings` | Question-form H2s map to query-fan-out sub-queries (RRF retrieval). |
+| `freshness` | Cited content skews fresher; stale/no-`dateModified` is penalized. |
+| `promo-tone` | Promotional/commodity tone correlates **negatively** with AI citation; self-ranking "#1/best" backfires (~69%). |
+| `title` / `meta-description` | Length budgets so SERP/snippet doesn't truncate. |
+| `internal-links`, `img-alt`, `canonical`, `thin-content`, `sitemap`, `duplicate-titles` | Classic technical hygiene. |
+
+## Safety model (read this)
+
+- **Nothing auto-merges to production.** `apply` is gated behind `--yes`; the nextjs
+  adapter lands changes on a fresh branch + PR for human review.
+- **No content slop.** The decide layer only *restructures/tightens real content* and
+  adds schema — it never invents claims, stats, or superlatives. (Google's 2026 AI-spam
+  detection — S-BERT/S-CTS, burstiness — demotes generated filler.)
+- **Off-domain is the company's job.** seo-bot handles on-site/technical/AEO. Brand
+  mentions, reviews, and digital PR (which beat backlinks ~3:1 for AEO) are human work.
+
+## Files
+
+```
+seo-bot/
+  bin/seo-bot.mjs        CLI
+  config/<name>.json     one per owned site
+  src/
+    config.mjs  util.mjs
+    crawl.mjs              sitemap discovery + raw-HTML fetch + robots/AI-bot analysis
+    rules.mjs  audit.mjs   the rule engine + scoring
+    decide.mjs             findings -> fix proposals (LLM-assisted, slop-resistant)
+    gsc.mjs                dependency-free Search Console client (JWT + REST)
+    apply/                 dryrun | nextjs (PR) | wordpress (REST) adapters
+    verify.mjs             server-render confirmation
+    indexnow.mjs  measure.mjs  orchestrator.mjs
+    research/              fetcher.mjs (acquisition) · credibility.mjs (scorer) · index.mjs (CLI glue)
+  scraper/               fetch.py — Scrapling stealth sidecar (+ requirements.txt, README)
+  config/source-trust.json  tiered source map + Google veto list
+  reports/<client>/      generated audits, proposals, run summaries (gitignored)
+```
+
+## Research subsystem — "be smart, don't take info as true"
+
+The bot keeps current by reading SEO/AEO sources (incl. X) — but treats everything
+scraped as a **claim**, never a fact.
 
 ```bash
-git clone https://github.com/supahotthanos/seo-bot.git && cd seo-bot
-npm install                                  # playwright/patchright for measurement (lazy — core runs without)
-
-node bin/seo-bot.mjs setup yourdomain.com    # onboard: config + worksheet + citations + content plan
-node bin/seo-bot.mjs connect yourdomain-com  # one-click Google OAuth (GSC/GA4) — see SETUP.md §1
-node bin/seo-bot.mjs run yourdomain-com --apply   # full loop; fixes arrive as PRs for you to merge
-node bin/seo-bot.mjs measure yourdomain-com  # AI-answer citations, no API
+node bin/seo-bot.mjs research tweet <id>          # scrape an X post + score its credibility
+node bin/seo-bot.mjs research fetch <url|id>      # acquisition only (tweet/RSS/HTML; stealth-escalates)
+node bin/seo-bot.mjs research score "<claim>" --source x:@glenngabe [--traced] [--corroborators a,b]
 ```
 
-Drafting/verifying uses the **Claude Code CLI** if you're logged in (`claude`) — no API key — or set `ANTHROPIC_API_KEY`. Full runbooks: [QUICKSTART.md](QUICKSTART.md) (15-minute path) and [SETUP.md](SETUP.md) (OAuth, Slack lanes, intake, DNS).
+- **Acquisition** (`src/research/fetcher.mjs`): X via the syndication endpoint, RSS, and
+  plain HTML run natively in Node (no Python). Cloudflare/JS walls escalate to the
+  **Scrapling** stealth sidecar (`scraper/`). Stealth ≠ auth bypass.
+- **Credibility** (`src/research/credibility.mjs` + `config/source-trust.json`): every claim is
+  `score = 0.6·sourceTier + 0.4·evidence − redFlags + corroboration`. SIFT caps an untraced
+  "study" claim at 0.39; Google's May-2026 veto list (llms.txt, AI-only schema, inauthentic
+  mentions…) is forced to review-to-reject. **Hard invariant: nothing here ever writes to
+  `rules.mjs`** — a human reads the daily brief and hand-edits rules. A lone confident tweet
+  scores ~0.3 → discard. See `research/seo-daily/README.md`.
 
-## A few of the ~60 commands
+## Daily research
 
-| | |
-|---|---|
-| `audit` / `propose` / `apply --yes` | rule audit → EV-ranked fixes → PR |
-| `weekly <client> --push` | the full autonomous cycle (cron target) |
-| `blog-post <client>` | one gated, voice-calibrated post → PR |
-| `blog-corpus <client>` | harvest ranking competitors' blogs → voice profile |
-| `serp-radar <client>` | stealth top-10 per city × money queries + tactic fingerprints |
-| `query-bank <client>` | ChatGPT answer panel with variance decomposition |
-| `dashboard <client> --push` | publish the 3-tier approvals queue (+ Slack mirror) |
-| `intake watch` | GSC grants / GitHub invites / mailbox → auto-onboard |
-| `stats <client>` | significance verdicts on everything shipped |
-| `doctor <client>` | what's missing, with the fix for each |
-
-`node bin/seo-bot.mjs help` lists everything.
-
-## Layout
-
-```
-bin/seo-bot.mjs      the CLI (every verb)
-src/                 the engine — mostly pure functions + thin IO shells
-src/stats/           z-tests, FDR, DiD, guardrails, decision loop
-src/measure/         browsers, SERP radar, query bank, markets grid
-src/content/         blog radar → drafts → gates → publish · voice engine
-src/intake/          GSC / GitHub / mailbox client-intake lanes
-test/                run.mjs (pure, no deps) + integration + no-cloud
-store/               dashboard store contract (fs / GitHub / Postgres drivers)
-```
-
-Working on it with a coding agent? Read [AGENTS.md](AGENTS.md) first. The test suite is the contract: `npm test` must stay green.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+The bot's rules encode what's working *today*. SEO/AEO shifts fast, so a scheduled
+daily deep-research routine refreshes `research/seo-daily/` and flags when a rule
+should change. See `research/seo-daily/README.md`.

@@ -100,6 +100,99 @@ export function buildHeldPrNotification({ client, title, prUrl = null, reason = 
   return { text: `Blog post held for review — ${title}${prUrl ? ` · ${prUrl}` : ''}`, blocks };
 }
 
+/** PURE: pre-call "call ammo" for a CONFIRMED lead — what the closer reads in 30 seconds
+ *  before dialing: score, where it hurts, what we'd pitch, one link to the full audit. */
+export function buildCallAmmoMessage({ name = null, domain, phone = null, apptTime = null, score = null, bySeverity = {}, byRule = [], proposals = [], reportUrl = null, facts = [] } = {}) {
+  if (!domain) return null;
+  const who = name ? `${name} — ${domain}` : domain;
+  const meta = [];
+  if (apptTime) meta.push(`📅 ${trunc(apptTime, 40)}`);
+  if (phone) meta.push(`📱 ${trunc(phone, 24)}`);
+  meta.push(`score *${score ?? '?'}/100* · 🔴 ${bySeverity.critical ?? 0} 🟠 ${bySeverity.high ?? 0} 🟡 ${bySeverity.medium ?? 0}`);
+  const blocks = [
+    { type: 'header', text: { type: 'plain_text', text: `📞 Call ammo — ${trunc(who, 120)}`, emoji: true } },
+    { type: 'context', elements: [{ type: 'mrkdwn', text: meta.join(' · ') }] },
+  ];
+  // Teardown one-liners (speed / booking / AI access / panel) — the 10-second read.
+  if (facts.length) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: facts.map((f) => trunc(String(f), 60)).join(' · ') }] });
+  const issues = byRule.slice(0, 5).map((r) => `• \`${r.rule}\` — ${r.count}× (${r.severity})`).join('\n');
+  const pitch = proposals.slice(0, 5).map((pp) => `• ${trunc(pp.type || 'fix', 40)} on \`${trunc(String(pp.page || '').replace(/^https?:\/\/[^/]+/, '') || '/', 40)}\``).join('\n');
+  if (issues) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*Where it hurts:*\n${issues}` } });
+  if (pitch) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*What we'd pitch:*\n${pitch}` } });
+  if (!issues && !pitch) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `Site audits clean at ${score}/100 — the pitch is maintenance + AI-visibility, not repairs.` } });
+  if (reportUrl) blocks.push({ type: 'actions', elements: [{ type: 'button', style: 'primary', text: { type: 'plain_text', text: 'Full audit', emoji: true }, url: reportUrl, action_id: 'open-ammo' }] });
+  return { text: `Call ammo — ${who}: ${score ?? '?'}/100${reportUrl ? ` · ${reportUrl}` : ''}`, blocks };
+}
+
+/** PURE: the founder's weekly SEO checklist (founders+AI lane — src/action-plan.mjs).
+ *  null when nothing needs the founder (quiet weeks stay quiet). Deep link mirrors the
+ *  approvals `?focus=` pattern onto the dashboard /todo page. */
+export function buildWeeklyTodoNotification({ client, brand = null, founderWeek = [], autoVerified = null, dashboardUrl = DEFAULT_DASHBOARD, founderName = null } = {}) {
+  const tasks = (founderWeek || []).filter((t) => t && t.title);
+  const doneBits = [];
+  if (autoVerified?.verified?.length) doneBits.push(`✅ ${autoVerified.verified.length} finished task(s) verified themselves`);
+  if (autoVerified?.reopened?.length) doneBits.push(`⚠ ${autoVerified.reopened.length} REGRESSED and reopened`);
+  if (!tasks.length && !doneBits.length) return null;
+  const todoLink = (taskId = null) => `${String(dashboardUrl).replace(/\/+$/, '')}/todo?client=${encodeURIComponent(client)}${taskId ? `&focus=${encodeURIComponent(taskId)}` : ''}`;
+  const totalMin = tasks.reduce((s, t) => s + (Number(t.effortMin) || 0), 0);
+  const blocks = [
+    { type: 'header', text: { type: 'plain_text', text: `📋 Your SEO week — ${brand || client}`, emoji: true } },
+    { type: 'context', elements: [{ type: 'mrkdwn', text: `${founderName ? `${founderName}: ` : ''}${tasks.length} task(s) · ~${totalMin} min total · everything else runs itself${doneBits.length ? ` · ${doneBits.join(' · ')}` : ''}` }] },
+    { type: 'divider' },
+  ];
+  for (const t of tasks) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `☐ *${trunc(t.title, 140)}* _(~${t.effortMin}m${t.cadence && t.cadence !== 'once' ? ` · ${t.cadence}` : ''})_\n${trunc(t.why, 150)}` },
+      accessory: { type: 'button', text: { type: 'plain_text', text: 'How →', emoji: true }, url: todoLink(t.id), action_id: `todo-${t.id}` },
+    });
+  }
+  blocks.push({ type: 'actions', elements: [{ type: 'button', style: 'primary', text: { type: 'plain_text', text: 'Open the full plan', emoji: true }, url: todoLink(), action_id: 'open-todo' }] });
+  return { text: `Your SEO week — ${brand || client}: ${tasks.length} task(s), ~${totalMin} min · ${todoLink()}`, blocks, _taskCount: tasks.length };
+}
+
+/** Orchestrator for the weekly founder checklist (called from the weekly routine). */
+export async function notifyFounderTodo(cfg, plan = {}, { log = () => {}, env = process.env, send = postSlack } = {}) {
+  const t = notifyTargets(cfg, env);
+  const target = { botToken: t.botToken, channel: t.channels.approvals || t.channels.csuite, webhook: t.webhook };
+  if (!(target.botToken && target.channel) && !target.webhook) return { delivered: false, note: 'no slack transport (set SLACK_BOT_TOKEN + a channel, or SEO_BOT_SLACK_WEBHOOK)' };
+  const payload = buildWeeklyTodoNotification({ client: cfg.name, brand: cfg.brand, founderWeek: plan.founderWeek, autoVerified: plan.autoVerified, dashboardUrl: t.dashboardUrl, founderName: cfg.deepAudit?.founder?.name || null });
+  if (!payload) { log('  slack todo: nothing needs the founder this week — staying quiet'); return { delivered: false, note: 'nothing for the founder' }; }
+  const r = await send(target, payload);
+  log(`  slack todo: ${r.delivered ? `sent — ${payload._taskCount} founder task(s)` : `NOT delivered (${r.note})`}`);
+  return r;
+}
+
+/** PURE: proposed strategy bets awaiting human approval. null when none (quiet weeks quiet).
+ *  Approval is a deliberate human act: the card carries the exact CLI command per bet. */
+export function buildBetProposalNotification({ client, brand = null, placed = [], record = null, dashboardUrl = DEFAULT_DASHBOARD } = {}) {
+  const bets = (placed || []).filter((b) => b && b.title);
+  if (!bets.length) return null;
+  const rec = record ? `agent record: ${record.hit}H/${record.miss}M${record.hitRate !== null ? ` · ${record.hitRate}% hit-rate` : ' · nothing judged yet'}` : null;
+  const blocks = [
+    { type: 'header', text: { type: 'plain_text', text: `🎯 ${bets.length} strategy bet(s) await your call — ${brand || client}`, emoji: true } },
+    { type: 'context', elements: [{ type: 'mrkdwn', text: `The agent stakes its record on these. Nothing runs until you approve.${rec ? ` · ${rec}` : ''}` }] },
+    { type: 'divider' },
+  ];
+  for (const b of bets) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*${trunc(b.title, 130)}*\n${trunc(b.action, 160)}\nexpects \`${b.metric}\` ${b.expectedDirection === 'down' ? 'to drop' : 'to rise'} by *${b.horizonDate}* (now: ${b.placedValue})\n_${trunc(b.why, 140)}_\n\`bets ${client} --approve ${b.id}\` · \`--reject ${b.id}\`` } });
+  }
+  blocks.push({ type: 'actions', elements: [{ type: 'button', style: 'primary', text: { type: 'plain_text', text: 'See the scoreboard', emoji: true }, url: `${String(dashboardUrl).replace(/\/+$/, '')}/todo?client=${encodeURIComponent(client)}`, action_id: 'open-bets' }] });
+  return { text: `${bets.length} strategy bet(s) await approval — ${brand || client}`, blocks, _betCount: bets.length };
+}
+
+/** Orchestrator for the bet-proposal card. */
+export async function notifyBetProposals(cfg, { placed = [], record = null } = {}, { log = () => {}, env = process.env, send = postSlack } = {}) {
+  const t = notifyTargets(cfg, env);
+  const target = { botToken: t.botToken, channel: t.channels.approvals || t.channels.csuite, webhook: t.webhook };
+  if (!(target.botToken && target.channel) && !target.webhook) return { delivered: false, note: 'no slack transport' };
+  const payload = buildBetProposalNotification({ client: cfg.name, brand: cfg.brand, placed, record, dashboardUrl: t.dashboardUrl });
+  if (!payload) return { delivered: false, note: 'no bets to propose' };
+  const r = await send(target, payload);
+  log(`  slack bets: ${r.delivered ? `sent — ${payload._betCount} proposal(s)` : `NOT delivered (${r.note})`}`);
+  return r;
+}
+
 /** POST a payload to a Slack incoming webhook. NEVER throws; 8s hard timeout. */
 export async function sendSlack(webhook, payload) {
   if (!webhook) return { delivered: false, note: 'no webhook' };

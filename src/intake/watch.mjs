@@ -1,7 +1,7 @@
 // seo-bot · intake/watch — the AUTONOMOUS client-intake lane.
 //
 // The operating agreement: when the web-dev finishes a site, he grants Search Console
-// access to the agency Gmail (your-agency@example.com). Nothing else. This watcher turns that
+// access to the agency Gmail (seenaiseo@gmail.com). Nothing else. This watcher turns that
 // single human act into a fully onboarded client:
 //
 //   sites.list (the _intake account's GSC)  ──diff──▶  new property
@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { ROOT, listConfigs } from '../config.mjs';
 import { getAccessToken, connectGoogle, connectionStatus, linkGoogleToken } from '../connect/google.mjs';
 
-export const INTAKE_ACCOUNT = '_intake'; // secrets/_intake.google.json — the your-agency@example.com grant
+export const INTAKE_ACCOUNT = '_intake'; // secrets/_intake.google.json — the seenaiseo@gmail.com grant
 
 /** PURE: a GSC property id → its bare domain. sc-domain:example.com and URL-prefix both handled. */
 export function domainOfProperty(siteUrl = '') {
@@ -88,7 +88,7 @@ export async function intakeConnect({ hint = process.env.SEO_BOT_INTAKE_EMAIL ||
 
 export async function intakeStatus({ log = () => {} } = {}) {
   const st = connectionStatus(INTAKE_ACCOUNT);
-  if (!st.connected) { log('  intake: NOT connected — run `seo-bot intake connect` (sign in as your-agency@example.com)'); return { connected: false }; }
+  if (!st.connected) { log('  intake: NOT connected — run `seo-bot intake connect` (sign in as seenaiseo@gmail.com)'); return { connected: false }; }
   log(`  intake: connected (${st.scopes}) since ${st.obtainedAt}${st.encrypted ? ' · encrypted' : ''}`);
   try {
     const token = await getAccessToken(INTAKE_ACCOUNT);
@@ -115,7 +115,7 @@ export async function intakeWatch({ log = () => {}, dryRun = false, root = ROOT,
   } = deps;
 
   const token = await tokenFn();
-  if (!token) return { ok: false, note: 'intake account not connected — run `seo-bot intake connect` once (your-agency@example.com)' };
+  if (!token) return { ok: false, note: 'intake account not connected — run `seo-bot intake connect` once (seenaiseo@gmail.com)' };
 
   const sites = await listFn(token);
   const known = knownFn();
@@ -125,7 +125,7 @@ export async function intakeWatch({ log = () => {}, dryRun = false, root = ROOT,
   const esc = escalateFn || (await import('../escalate.mjs')).escalate;
   const results = [];
   for (const u of unverified) {
-    await esc(null, { severity: 'warning', area: 'intake', title: `GSC grant is UNVERIFIED — ${u.domain}`, detail: `your-agency-account was added to \`${u.siteUrl}\` but the property is unverified (permission: ${u.permissionLevel}). Ask the dev to verify the property; intake will pick it up on the next pass.` }, { log });
+    await esc(null, { severity: 'warning', area: 'intake', title: `GSC grant is UNVERIFIED — ${u.domain}`, detail: `seenaiseo was added to \`${u.siteUrl}\` but the property is unverified (permission: ${u.permissionLevel}). Ask the dev to verify the property; intake will pick it up on the next pass.` }, { log });
     results.push({ domain: u.domain, status: 'unverified' });
   }
   for (const site of fresh) {

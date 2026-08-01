@@ -43,7 +43,9 @@ export const WORK_ORDER_TYPES = Object.freeze(['sync-dashboard', 'weekly-run', '
 export const NO_ALLOWANCE = Object.freeze({ plan: null, sites: 0, promptsPerWeek: 0, experiments: 0, missing: true });
 
 const KINDS = new Set(['pending', 'decisions', 'artifacts', 'tracking', 'shots', 'settings',
-  'orgs', 'members', 'login-limits', 'shares', 'limits', 'work-orders', 'runners', 'audit']);
+  'orgs', 'members', 'login-limits', 'shares', 'limits', 'work-orders', 'runners', 'audit',
+  'prospects', // prospects/<org>/<domain-slug>.json — pre-call audit decks; NEVER a client kind
+  'exports']); // exports/<org>/<id>.json — panel mirrors readable off-LAN (qb-export); PRIVATE store only
 /** Kinds whose '_default' org maps to legacy v0 UNPREFIXED gh paths (CONTRACT §2 table). */
 const LEGACY_KINDS = new Set(['pending', 'decisions', 'artifacts', 'tracking', 'shots', 'settings']);
 
@@ -186,8 +188,42 @@ export function createFsDriver({ root = ROOT } = {}) {
 
 export function createGhDriver(env = process.env) {
   const repo = env.SEO_BOT_STORE_REPO || env.STORE_REPO || 'supahotthanos/seenai-queue';
-  // verbatim: same gh invocation, encoding, maxBuffer, stdio as the old dashboard.mjs ghApi()
-  const gh = (args, input) => execFileSync('gh', ['api', ...args], { encoding: 'utf-8', input, maxBuffer: 32 * 1024 * 1024, stdio: ['pipe', 'pipe', 'ignore'] });
+  // Two transports, chosen at construction so a hot path never guesses:
+  //   - GH_TOKEN present → HTTPS via fetch (self-contained; the launchd Node children on the
+  //     Mini can't reliably find gh on PATH — 2026-07-13 caused the jobs poller to read
+  //     "queue empty" while real orders sat here).
+  //   - otherwise → shell out to the gh CLI (backwards-compat; verbatim signature as before).
+  // Both mimic the CLI's response shape: reads return `[JSON]`; writes/deletes return `""`.
+  // Transport is chosen once at construction — a hot path never guesses which to use.
+  //   - GH_TOKEN present → sync HTTPS via curl (always on PATH; the Mini's launchd Node children
+  //     can't reliably find gh, so the CLI transport silently returned "" and the jobs poller
+  //     read "queue empty" while real orders sat in the store — 2026-07-13).
+  //   - otherwise → shell out to the gh CLI (backwards-compat; verbatim signature as before).
+  const token = env.GH_TOKEN || env.GITHUB_TOKEN || null;
+  const ghCurl = (args, input) => {
+    let method = 'GET', pathArg = args[0];
+    for (let i = 1; i < args.length; i++) if (args[i] === '-X') method = args[++i];
+    const url = `https://api.github.com/${String(pathArg).replace(/^\/+/, '')}`;
+    const curlArgs = ['-sS', '-X', method,
+      '-H', `Authorization: Bearer ${token}`,
+      '-H', 'Accept: application/vnd.github+json',
+      '-H', 'X-GitHub-Api-Version: 2022-11-28',
+      '-H', 'User-Agent: seo-bot-store'];
+    if (input && method !== 'GET') { curlArgs.push('-H', 'Content-Type: application/json', '--data-binary', '@-'); }
+    // --fail-with-body: WITHOUT it curl exits 0 on HTTP 4xx/5xx, so a rejected write (e.g. an
+    // over-sized contents PUT) returned {ok:true} while committing NOTHING — a silent data-loss
+    // mode caught live 2026-07-14 (deck publish "succeeded", no commit). Now any HTTP error
+    // throws, with GitHub's error body attached so the caller's log says WHY.
+    curlArgs.push('--fail-with-body', url);
+    try {
+      return execFileSync('curl', curlArgs, { encoding: 'utf-8', input: input && method !== 'GET' ? input : undefined, maxBuffer: 32 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (e) {
+      const body = String(e && e.stdout || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`github api ${method} ${String(pathArg).slice(0, 80)} failed${body ? `: ${body}` : ` (${String(e && e.message || e).slice(0, 120)})`}`);
+    }
+  };
+  const ghCli = (args, input) => execFileSync('gh', ['api', ...args], { encoding: 'utf-8', input, maxBuffer: 32 * 1024 * 1024, stdio: ['pipe', 'pipe', 'ignore'] });
+  const gh = token ? ghCurl : ghCli;
   const raw = (p) => JSON.parse(gh([`repos/${repo}/contents/${p}`])); // {content(base64), sha}
   const casPut = (p, contentB64, message, sha) => gh([`repos/${repo}/contents/${p}`, '-X', 'PUT', '--input', '-'], JSON.stringify({ message, content: contentB64, ...(sha ? { sha } : {}) }));
   return {
@@ -285,18 +321,20 @@ export function createGhDriver(env = process.env) {
     claimWorkOrder(org, runnerId, types) {
       const base = `work-orders/${org}`;
       let files = [];
-      try { files = JSON.parse(gh([`repos/${repo}/contents/${base}`])); } catch { return null; }
+      try { files = JSON.parse(gh([`repos/${repo}/contents/${base}`])); }
+      catch (e) { if (process.env.SEO_BOT_JOBS_DEBUG) console.error(`  jobs-debug: gh list ${base} failed: ${String(e.message || e).slice(0, 200)}`); return null; }
       const named = (Array.isArray(files) ? files : []).filter((f) => String(f.name).endsWith('.json'))
         .sort((a, b) => String(a.name).localeCompare(String(b.name))); // wo_<epochMs>_ → name order ≈ created order
       for (const f of named) {
         try {
           const j = raw(`${base}/${f.name}`);
           const doc = JSON.parse(Buffer.from(j.content, 'base64').toString('utf8'));
+          if (process.env.SEO_BOT_JOBS_DEBUG) console.error(`  jobs-debug: ${f.name} status=${doc?.status} type=${doc?.type} sha=${j?.sha?.slice(0, 8)}`);
           if (!doc || doc.status !== 'queued' || !types.includes(doc.type)) continue;
           const claimed = { ...doc, status: 'claimed', claimedBy: runnerId, claimedAt: nowIso(), attempts: (doc.attempts || 0) + 1 };
           casPut(`${base}/${f.name}`, Buffer.from(JSON.stringify(claimed)).toString('base64'), `claim ${doc.id} by ${runnerId}`, j.sha); // sha-CAS: lost race throws → try next
           return claimed;
-        } catch { continue; }
+        } catch (e) { if (process.env.SEO_BOT_JOBS_DEBUG) console.error(`  jobs-debug: claim ${f.name} threw: ${String(e.message || e).slice(0, 200)}`); continue; }
       }
       return null;
     },
@@ -378,6 +416,11 @@ export function wrapStore(driver, org) {
     getBlob: (p) => driver.getBlob(p),
     putBlob: (p, b, m) => driver.putBlob(p, b, m),
     appendLog: (p, row) => driver.appendLog(p, row),
+    // atomic work-order claim (fs 'wx' lockfile / gh sha-CAS / pg claim_work_order) —
+    // delegated when the driver supports it; the jobs poller + seenai-runner both use this.
+    ...(typeof driver.claimWorkOrder === 'function'
+      ? { claimWorkOrder: (org2, runnerId, types) => driver.claimWorkOrder(org2, runnerId, types) }
+      : {}),
 
     // -- pending / decisions / artifacts / tracking / settings / shots --
     readPending: (client) => clientOk(client) ? driver.getJson(`pending/${org}/${client}.json`) : null,

@@ -89,7 +89,7 @@ export function gbpFanout(cfg) {
       'Hours + holiday hours',
       'Services list with descriptions + price ranges',
       '2 Local Posts / month (offers, events)',
-      '10+ geo-tagged photos (exterior, interior, team, results w/ consent)',
+      '10+ real photos (exterior, interior, team, results w/ consent) — geo-tagging is DEBUNKED (Google strips EXIF; src/local/factors.mjs), the photos themselves are the value',
       'Seed 3-5 Q&A; respond to every review (never sentiment-gate — FTC 16 CFR 465)',
     ],
   }));

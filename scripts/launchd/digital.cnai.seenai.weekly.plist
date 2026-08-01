@@ -8,10 +8,10 @@
     <string>/Users/supahotthanos/seo-bot/scripts/mini-run.sh</string>
     <string>weekly</string>
   </array>
-  <key>StartCalendarInterval</key>
-  <dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+  <!-- interval tick; mini-run.sh gates to Sundays >=10:00, once per week -->
+  <key>StartInterval</key><integer>1800</integer>
   <key>StandardOutPath</key><string>/Users/supahotthanos/seo-bot/logs/launchd-weekly.out</string>
   <key>StandardErrorPath</key><string>/Users/supahotthanos/seo-bot/logs/launchd-weekly.err</string>
-  <key>RunAtLoad</key><false/>
+  <key>RunAtLoad</key><true/>
   <key>ProcessType</key><string>Background</string>
 </dict></plist>

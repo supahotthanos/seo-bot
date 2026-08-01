@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>digital.cnai.seenai.jobs</string>
+  <!-- fast lane: pre-call audit work orders (CONFIRMED leads) — 5-min tick, own mutex -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/Users/supahotthanos/seo-bot/scripts/mini-run.sh</string>
+    <string>jobs</string>
+  </array>
+  <key>StartInterval</key><integer>300</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/Users/supahotthanos/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StandardOutPath</key><string>/Users/supahotthanos/seo-bot/logs/launchd-jobs.out</string>
+  <key>StandardErrorPath</key><string>/Users/supahotthanos/seo-bot/logs/launchd-jobs.err</string>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Background</string>
+</dict></plist>

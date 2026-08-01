@@ -114,8 +114,63 @@ export function parsePage(html, url, cfg) {
   const intrusiveInterstitial = /onesignal|pushengage|web-?push|push notification|exit-intent|interstitial-ad|popup-overlay/i.test(html || '');
   const citationManipulation = CITATION_MANIPULATION.test(bodyText);
 
+  // Hidden-prompt GEO / LLM injection (Microsoft Feb-2026 security report: formally spam;
+  // Lily Ray: removal recovers visibility "pretty instantly" — so detection is both a
+  // penalty-risk flag and prospect-deck ammo). Three raw-HTML shapes: (1) hidden blocks
+  // carrying AI-directed instructions, (2) prompt-prefilled links into chat engines,
+  // (3) classic injection phrases anywhere. Heuristics on raw HTML — sized medium/high
+  // by the consuming rule, phrased "crawl-detectable", never a certainty.
+  const aiPromptInjection = (() => {
+    const h = html || '';
+    const AI_DIRECTIVE = /\b(chatgpt|gpt-?\d|claude|gemini|perplexity|copilot|ai assistants?|language models?|llms?)\b[^<>]{0,140}\b(recommend|summariz|cite|mention|describe|rank|say|prefer|choose)/i;
+    for (const m of h.matchAll(/<[^>]+(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0[^.\d]|text-indent\s*:\s*-\d{3,}|left\s*:\s*-\d{3,}px|font-size\s*:\s*0|aria-hidden=["']true["'])[^>]*>([\s\S]{0,800}?)<\//gi)) {
+      if (AI_DIRECTIVE.test(m[1])) return { kind: 'hidden-block', excerpt: m[1].replace(/\s+/g, ' ').trim().slice(0, 160) };
+    }
+    const pre = h.match(/href=["']([^"']*(?:chatgpt\.com|chat\.openai\.com|perplexity\.ai|gemini\.google\.com|copilot\.microsoft\.com)[^"']*[?&]q=[^"']+)["']/i);
+    if (pre) return { kind: 'prompt-prefill-link', excerpt: pre[1].slice(0, 160) };
+    const inj = h.match(/ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions[^<]{0,80}/i);
+    if (inj) return { kind: 'injection-phrase', excerpt: inj[0].replace(/\s+/g, ' ').trim().slice(0, 160) };
+    return null;
+  })();
+
+  // Listicle shape + self-ranking (Lily Ray Jun-2026: AIO cites self-promotional "best X"
+  // listicles but recommends a COMPETITOR in 69% of cases, and Google demotes the publishers
+  // — Jan-2026 cohort −29..−49%). Shape = "best/top N ... in ..." title + list-like structure.
+  const listicleShape = /\b(?:top|best)\s+\d+\b|\bbest\b[^|–—-]{0,50}\bin\b/i.test(title)
+    && (jsonLdTypes.some((t) => String(t).toLowerCase() === 'itemlist') || headings.filter((h) => h.level >= 2).length >= 4);
+  const brandLc = String(cfg?.brand || '').toLowerCase().trim();
+  const selfRankedListicle = listicleShape && !!brandLc
+    && headings.filter((h) => h.level >= 2).slice(0, 2).some((h) => h.text.toLowerCase().includes(brandLc));
+
   const medspa = cfg?.vertical === 'medspa' ? medspaFields(html, bodyText, jsonLdTypes, cfg) : null;
   const local = (cfg?.vertical === 'medspa' || cfg?.local) ? localFields(html, bodyText, cfg) : null;
+
+  // Conversion-surface signals (Local SEO Playbook 2026 teardown — Indexsy/Local Rank):
+  // form placement, sticky booking CTA, card-style links, map embed. Raw-HTML heuristics —
+  // external stylesheets are invisible here, so the consuming rules are sized low/medium
+  // and phrased "no crawl-detectable X", never as a certainty.
+  const BOOKING_IFRAME_RE = /<iframe[^>]+src=["'][^"']*(vagaro|joinblvd|blvd\.co|jane\.?app|mindbody|acuityscheduling|calendly|squareup|glossgenius|zenoti|leadconnectorhq|msgsndr)[^"']*["']/i;
+  const formDocPos = (() => {
+    const h = html || '';
+    const cands = [h.search(/<form\b/i)];
+    const bm = h.match(BOOKING_IFRAME_RE);
+    if (bm && bm.index >= 0) cands.push(bm.index);
+    const found = cands.filter((i) => i >= 0);
+    return found.length ? Math.min(...found) / Math.max(1, h.length) : null; // 0..1 document position; null = no form at all
+  })();
+  const cardLinks = $('a[href]').filter((_, el) => $(el).find('img,picture,h2,h3,h4').length > 0).length;
+  const mapEmbed = /<iframe[^>]+src=["'][^"']*(google\.[a-z.]+\/maps|maps\.google|\/maps\/embed)[^"']*["']/i.test(html || '');
+  const CTA_WORDS = /book|appointment|schedule|consult|call now|contact/i;
+  const stickyCta = (() => {
+    const h = html || '';
+    for (const m of h.matchAll(/<[a-z][^>]*style=["'][^"']*position:\s*(fixed|sticky)[^"']*["'][^>]*>([\s\S]{0,600}?)<\//gi)) {
+      if (CTA_WORDS.test(m[2])) return true;
+    }
+    for (const m of h.matchAll(/<(nav|header|div)[^>]*class=["'][^"']*(sticky|fixed-top|is-sticky|navbar-fixed|sticky-top|fixed-header)[^"']*["'][^>]*>([\s\S]{0,800})/gi)) {
+      if (CTA_WORDS.test(m[3])) return true;
+    }
+    return false;
+  })();
 
   return {
     url, title, titleLen: title.length, metaDesc, metaLen: metaDesc.length, canonical, robotsMeta, lang, viewport, ogTitle,
@@ -123,6 +178,8 @@ export function parsePage(html, url, cfg) {
     internal, external, genericAnchorCount, lowVarietyTargets, imgCount: imgs.length, imgsMissingAlt, modified, promoHits, looksSpaShell,
     htmlBytes: Buffer.byteLength(html || '', 'utf8'), medspa, local,
     adSlots, intrusiveInterstitial, citationManipulation,
+    formDocPos, cardLinks, mapEmbed, stickyCta,
+    aiPromptInjection, listicleShape, selfRankedListicle,
   };
 }
 
@@ -220,6 +277,19 @@ export function auditPage(page, cfg) {
   // --- citation/review manipulation (Google May-2026 policy + FTC) — FLAG ONLY ---
   if (p.citationManipulation) out.push(f('citation-manipulation', 'high', 'Copy implies bought/placed citations, paid reviews, or guaranteed rankings.', 'Remove it — "buying or altering citations" + inauthentic review/mention networks are spam (Google May-2026) and an FTC violation. FLAG ONLY — route to human/legal review.'));
 
+  // --- hidden-prompt GEO / LLM injection (Microsoft Feb-2026: formally classified spam) ---
+  if (p.aiPromptInjection) out.push(f('ai-prompt-injection', 'high',
+    `Crawl-detectable AI-directed instruction on the page (${p.aiPromptInjection.kind}): "${p.aiPromptInjection.excerpt}".`,
+    'Remove it — Microsoft\'s Feb-2026 security report classifies hidden-prompt GEO as spam (31 companies caught) and Google treats it the same; sites that removed it recovered visibility almost immediately. Often planted by a "GEO vendor" — an easy, fast win.', { url: p.url, kind: p.aiPromptInjection.kind }));
+
+  // --- self-ranked "best X" listicle on the OWN domain (Lily Ray Jun-2026) ---
+  if (p.selfRankedListicle) out.push(f('self-ranked-listicle', 'high',
+    `Self-published "best of" listicle ranks the business itself at the top ("${p.title}").`,
+    'Unpublish or rewrite as a genuine service page — AI Overviews cite self-promotional listicles but recommend a COMPETITOR in ~69% of cases, Google demoted publisher cohorts −29..−49% (Jan-2026), and unsubstantiated self-rankings carry FTC Consumer Review Rule exposure. Get named in THIRD-PARTY listicles instead.', { url: p.url }));
+  else if (p.listicleShape && p.local) out.push(f('own-domain-listicle', 'low',
+    `"Best/Top N" listicle published on the business's own domain ("${p.title}").`,
+    'Own-domain "best of" pages are the pattern Google\'s 2026 updates demote when self-serving — keep it strictly editorial (never rank yourself), or move the effort to earning third-party listicle placements.', { url: p.url }));
+
   // --- freshness ---
   if (p.bodyWords >= a.minWords) {
     if (!p.modified) out.push(f('freshness', 'medium', 'No dateModified / visible update date.', 'Emit dateModified in schema and show "Updated <Month> 2026" — cited content skews fresher.'));
@@ -244,8 +314,68 @@ export function auditPage(page, cfg) {
   if (!p.ogTitle) out.push(f('open-graph', 'low', 'Missing Open Graph tags.', 'Add og:title/description/image for social + Discover.'));
 
   if (cfg.vertical === 'medspa') out.push(...auditMedspaPage(p, cfg));
+  if (cfg.vertical === 'medspa' || cfg.local) out.push(...auditLocalPage(p, cfg));
 
   return { url: page.url, status: page.status, findings: out, parsed: p };
+}
+
+/** Per-page conversion-surface rules (Local SEO Playbook 2026 — the Indexsy/Local Rank
+ *  teardown of a #1-ranking vet clinic). Money pages only (home/service/location). These are
+ *  the leaks they called out on a site that RANKS but doesn't convert: no form above the
+ *  fold, plain in-content links nobody clicks (wasted behavioral signal), no geo context in
+ *  the intro. Raw-HTML heuristics — sized low/medium, phrased as crawl-detectable. */
+export function auditLocalPage(p, cfg) {
+  const out = [];
+  let path = ''; try { path = new URL(p.url).pathname; } catch { /* relative fixture URLs stay un-pathed */ }
+  const isHome = path === '/' || path === '';
+  const isService = reTest(cfg.servicePathRe, path);
+  const isLocation = reTest(cfg.locationPathRe, path);
+  if (!(isHome || isService || isLocation)) return out;
+
+  // contact form / booking embed — absent entirely, or buried in the bottom half
+  if (p.formDocPos === null) {
+    out.push(f('local-contact-form', 'high', 'No contact form or booking embed found on this money page.',
+      'Add a contact/booking form high on the page — ready-to-book visitors want to act immediately; above the fold on mobile is the single biggest local CRO fix.', { url: p.url }));
+  } else if (p.formDocPos > 0.6) {
+    out.push(f('local-contact-form', 'medium', 'The only contact/booking form sits in the bottom half of the document.',
+      'Move (or duplicate) the form near the top — researchers scroll, ready-to-book visitors bounce.', { url: p.url }));
+  }
+
+  // card-style internal links — in-content anchors get near-zero clicks; unclicked links waste
+  // the behavioral signal ("might as well not have a link")
+  if ((isService || isLocation) && p.internal >= 3 && p.cardLinks === 0) {
+    out.push(f('local-card-links', 'low', 'Internal links on this money page are plain in-content anchors — no card-style link modules.',
+      'Convert related-service/related-location links into visual cards (image + heading) — clicked links are the signal; unclicked anchors are dead weight.', { url: p.url }));
+  }
+
+  // outbound citations — controlled test (Diamante/Sturm Mar-2026): on a clean fabricated-
+  // keyword test, all 5 pages citing credible external sources outranked all 5 that didn't.
+  if ((isService || isLocation) && p.bodyWords >= 150 && p.external === 0) {
+    out.push(f('content-outbound-citations', 'medium', 'No outbound link to any external source on this money page.',
+      'Cite 1-3 credible sources (FDA/NIH/ASPS-class for medical claims) — "external links show that you\'re not just making things up", and cited pages beat uncited ones 5-for-5 in controlled testing.', { url: p.url }));
+  }
+
+  // local-VALUE parity with the draft gate (June-2026 spam update): a service/location page
+  // with NONE of {real price in city context, named credentialed provider, neighborhood/
+  // landmark} is the exact swapped-city template shape the update demoted. The draft gate
+  // blocks NEW pages like this; this rule flags the INHERITED ones already live.
+  const vm = p.local?.valueMarkers;
+  if ((isService || isLocation) && p.bodyWords >= 150 && vm && vm.count === 0) {
+    out.push(f('local-value', 'high', 'Zero local value on this money page — no real price in city context, no named credentialed provider, no neighborhood/landmark.',
+      'Add at least 2 of: a real price range in city context, the named provider with credentials, a neighborhood/landmark reference. City-token-only templates are the June-2026 demotion shape (survivors had real per-city facts).', { url: p.url }));
+  }
+
+  // landmark / neighborhood in the first paragraph — instant geo-context, near-zero effort
+  const cityLc = String(cfg.listings?.canonicalNap?.city || cfg.locations?.[0]?.nap?.city || cfg.serviceAreaGeos?.[0] || '').toLowerCase().trim();
+  const hoodsLc = (cfg.neighborhoods || []).filter(Boolean).map((n) => String(n).toLowerCase());
+  if ((cityLc || hoodsLc.length) && p.answerText) {
+    const first = p.answerText.toLowerCase();
+    if (!(cityLc && first.includes(cityLc)) && !hoodsLc.some((n) => first.includes(n))) {
+      out.push(f('local-landmark-intro', 'low', 'First paragraph names no city, neighborhood, or landmark.',
+        'Mention the city + a nearby landmark/neighborhood in the opening paragraph — cheap geo-context for crawlers ("it\'s a why-not").', { url: p.url }));
+    }
+  }
+  return out;
 }
 
 /** Site-level rules (robots, sitemap, duplicate titles). */
@@ -445,6 +575,17 @@ export function localFields(html, bodyText, cfg = {}) {
     ...hoods.map((n) => bt.includes(n)),
   ];
   const configured = !!(street || zip || hoods.length);
+  // local-VALUE markers — audit-side parity with the content gate's `local-value` hard gate
+  // (gates.mjs): real $ price in city context · named CREDENTIALED provider (uppercase
+  // credential match on the raw text — lowercasing would false-positive on the verb "do") ·
+  // neighborhood/landmark. A page with 0/3 is the exact city-swap template shape the
+  // June-2026 spam update demoted.
+  const btRaw = (bodyText || '').replace(/\s+/g, ' ');
+  const valueMarkers = {
+    localPrice: /\$\s?\d/.test(btRaw) && (city ? bt.includes(city) : false),
+    namedProvider: /\b(MD|DO|NP|PA-C|FNP|DNP|RN)\b/.test(btRaw) || /board[- ]?certified/i.test(btRaw),
+    neighborhood: hoods.some((n) => bt.includes(n)) || /\b(downtown|neighborhood|district|suburb|landmark|located (in|near|at))\b/.test(bt),
+  };
   return {
     // null = unconfigured → honest "unknown", never a silent pass or a false issue
     streetVisible: street ? bt.includes(street) : null,          // visible-address (Sterling Sky, 7th factor)
@@ -452,6 +593,7 @@ export function localFields(html, bodyText, cfg = {}) {
     localMarkers: configured ? markerSources.filter(Boolean).length : null, // Gifford swap-test inputs
     hoursSchema: /openinghoursspecification/i.test(lc),           // open-at-time-of-search needs machine-readable hours
     geoSchema: /"geo"\s*:/i.test(lc),
+    valueMarkers: { ...valueMarkers, count: Object.values(valueMarkers).filter(Boolean).length },
   };
 }
 
@@ -491,6 +633,32 @@ export function auditLocalSite(pages, cfg) {
         'Rewrite so the copy only works for THIS business in THIS city (Gifford content-authenticity test) — name the city, street, neighborhoods with REAL local facts, never stuffing. See research/local-ranking-factors-2026.md §1.11.',
         { url: p.url }));
     }
+  }
+
+  // Site chrome (Local SEO Playbook 2026 — Indexsy): sticky booking CTA + a map embed.
+  if (!parsed.some((p) => p.stickyCta)) {
+    out.push(f('local-sticky-cta', 'low',
+      'No crawl-detectable sticky booking CTA (inline-style / known-class heuristic) on any sampled page.',
+      'Keep "Book an appointment" in a sticky header on every page ("this should be in your face at all times") — verify manually if the sticky is styled via external CSS.'));
+  }
+  if (!parsed.some((p) => p.mapEmbed)) {
+    out.push(f('local-map-embed', 'medium',
+      'No Google Map embed found on any sampled page.',
+      'Embed the GBP map (paired with geo/PostalAddress schema) on contact/location sections — a standard local trust win.'));
+  }
+
+  // Evidence pages for the LLM brand-validation probe (Sturm Apr-2026 payloads: once a
+  // brand surfaces in the fan-out, ChatGPT runs site: searches on its domain and Perplexity
+  // deep-dives it — a site with no crawlable proof pages fails that second pass silently).
+  const EVIDENCE_PATH_RE = /review|testimonial|result|before-after|before_after|awards?|credential|about|team|meet-|our-(story|providers?|staff)/i;
+  const hasEvidencePage = pages.some((pg) => {
+    let path = ''; try { path = new URL(pg.url).pathname; } catch { path = String(pg.url || ''); }
+    return EVIDENCE_PATH_RE.test(path) && (pg.parsed?.bodyWords || 0) >= 100;
+  });
+  if (!hasEvidencePage) {
+    out.push(f('local-evidence-pages', 'medium',
+      'No substantive reviews/credentials/about page among the sampled pages.',
+      'Publish crawlable proof pages (patient reviews with text, provider credentials, awards, process/pricing) — after an AI finds a brand it runs a site: validation search, and "mentioned" only becomes "recommended" when that second pass finds substantiation.'));
   }
   return out;
 }

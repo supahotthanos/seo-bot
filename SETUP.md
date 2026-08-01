@@ -10,7 +10,7 @@ This is the single most important step (GA4 + GSC + Business Profile all use it)
 
 1. Go to **console.cloud.google.com** → create a project (e.g. "cnai-seo-bot").
 2. **APIs & Services → Enable APIs**: enable **Google Analytics Data API**, **Search Console API**, **Business Profile API** (the last is approval-gated — submit the access request now; ~7–10 business days).
-3. **APIs & Services → OAuth consent screen**: User type **External**; app name "seo-bot"; add `you@your-agency.com` as a test user. **Then click "Publish app" → In production** (in Testing mode refresh tokens die after 7 days).
+3. **APIs & Services → OAuth consent screen**: User type **External**; app name "seo-bot"; add `founders@cnai.digital` as a test user. **Then click "Publish app" → In production** (in Testing mode refresh tokens die after 7 days).
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID → Application type: Desktop app.** Copy the **client ID** and **client secret**.
 5. Set them (either works):
    ```bash
@@ -50,23 +50,23 @@ For `measure` (AI-visibility, no API), run from a **residential IP** so ChatGPT/
 
 *Fallback transport:* a plain incoming webhook still works (`SEO_BOT_SLACK_WEBHOOK="https://hooks.slack.com/services/…"`) — single channel, used only when no bot token is set. No transport at all = the lanes are silently off; the dashboard queue remains the source of truth.
 
-**Zero-click client intake — THE HANDOFF PROTOCOL (3 lanes, all on the Mini's 30-min watcher):** when your web-dev finishes a site he does exactly two things: ① adds `your-agency@example.com` as a user in the site's **Search Console**, ② invites the **your-agency-account GitHub account** as a collaborator on the site's repo. The watcher does the rest — no clicks from anyone:
+**Zero-click client intake — THE HANDOFF PROTOCOL (3 lanes, all on the Mini's 30-min watcher):** when your web-dev finishes a site he does exactly two things: ① adds `seenaiseo@gmail.com` as a user in the site's **Search Console**, ② invites the **seenaiseo GitHub account** as a collaborator on the site's repo. The watcher does the rest — no clicks from anyone:
 - **gsc lane** — the grant appears in `sites.list` → domain onboarded (config + worksheet + citations + content plan), `gsc.siteUrl` set, shared token linked (pulls live immediately), 🆕 posted to C-suite. Grants need no acceptance; unverified properties are reported, never auto-onboarded.
 - **github lane** — the invitation is ACCEPTED via the GitHub API (never an email link), the repo is cloned to `~/clients/`, and if the repo's name/homepage unambiguously matches a client domain it's paired automatically (`cms.repoPath` set → **the PR lane is live**: on-page fixes + blog posts flow as PRs). Ambiguous → C-suite gets a message with the one command to run: `intake pair <client> --repo <owner/name>`.
 - **mail lane** — everything ELSE that lands in the inbox (hosting invites, credential handoffs, "site is live" notes) is surfaced to the C-suite channel with sender+subject. Read-only IMAP (EXAMINE + BODY.PEEK): the bot never clicks links, never replies, never marks read.
 
 One-time setup:
 ```bash
-# ① GSC consent (laptop, browser): sign in as your-agency@example.com, approve (GSC scope only)
+# ① GSC consent (laptop, browser): sign in as seenaiseo@gmail.com, approve (GSC scope only)
 node bin/seo-bot.mjs intake connect
 scp secrets/_intake.google.json mini:seo-bot/secrets/
 
-# ② GitHub: create/log into the your-agency-account GitHub account → Settings → Developer settings →
+# ② GitHub: create/log into the seenaiseo GitHub account → Settings → Developer settings →
 #    Personal access tokens → Tokens (classic) → scope: repo → copy ghp_…
 #    (classic, not fine-grained — invitation accept needs it)  → on the Mini:
 echo 'GH_TOKEN=ghp_…' >> ~/seo-bot/.env      # gh CLI honors it too (retires the device-auth blocker)
 
-# ③ Gmail app password: Google account (your-agency-account) → Security → 2-Step Verification (turn ON)
+# ③ Gmail app password: Google account (seenaiseo) → Security → 2-Step Verification (turn ON)
 #    → App passwords → generate → then on the Mini:
 node bin/seo-bot.mjs intake gmail --app-password "xxxx xxxx xxxx xxxx" --test
 
@@ -77,7 +77,7 @@ node bin/seo-bot.mjs intake status           # shows all three lanes' readiness
 
 ```bash
 node bin/seo-bot.mjs setup yourclient.com        # onboard → config → worksheet → citations → content plan → verify
-node bin/seo-bot.mjs connect yourclient-com      # sign in once as you@your-agency.com, approve
+node bin/seo-bot.mjs connect yourclient-com      # sign in once as founders@cnai.digital, approve
 ```
 Then finish the config (`config/yourclient-com.json`): set `ga4.propertyId`, `vertical: "medspa"`, `servicePathRe`, `locationPathRe`, `listings.canonicalNap`, `services[]` (with real prices), the YMYL reviewer, and expand `promptPanel` to 30–50 prompts. `doctor yourclient-com` lists anything missing.
 

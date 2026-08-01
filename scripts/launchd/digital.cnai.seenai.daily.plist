@@ -8,10 +8,10 @@
     <string>/Users/supahotthanos/seo-bot/scripts/mini-run.sh</string>
     <string>daily</string>
   </array>
-  <key>StartCalendarInterval</key>
-  <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>15</integer></dict>
+  <!-- interval tick; mini-run.sh gates to once/day at >=09:15 -->
+  <key>StartInterval</key><integer>1800</integer>
   <key>StandardOutPath</key><string>/Users/supahotthanos/seo-bot/logs/launchd-daily.out</string>
   <key>StandardErrorPath</key><string>/Users/supahotthanos/seo-bot/logs/launchd-daily.err</string>
-  <key>RunAtLoad</key><false/>
+  <key>RunAtLoad</key><true/>
   <key>ProcessType</key><string>Background</string>
 </dict></plist>

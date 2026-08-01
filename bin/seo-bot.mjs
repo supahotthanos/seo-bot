@@ -59,6 +59,10 @@ async function main() {
     log(`  inspect <client> [--url U] GSC URL Inspection — real index status per page (after connect)`);
     log(`  schema  <client>           structured-data lint + 2026 rich-result eligibility (no API)`);
     log(`  techaudit <client> [--max N]  BFS crawl: depth, redirect chains, X-Robots, orphans, indexability (no API)`);
+    log(`  deep-audit <client> [--no-capture]  founders+AI super audit: site+local+GBP-public+citations+risk → action-plan todos`);
+    log(`  scoreboard <client>        Rank-Loop outcomes: weekly snapshot + deltas vs baseline/targets + stall flag`);
+    log(`  flight-check [client]      Rank-Loop health: ONE 🟢/🟡/🔴 verdict across lanes/artifacts/store (RED exits 1 + escalates)`);
+    log(`  bets <client> [--approve ID|--reject ID]  Rank-Loop strategy bets: score dues, list proposals, record + hit-rate`);
     log(`  a11y    <client>           static WCAG-AA accessibility scan (no API)`);
     log(`  images  <client>           image-SEO audit (alt/filenames/WebP) + 2026 image sitemap (no API)`);
     log(`  entity  <client>           entity-consistency: Wikidata + Google KG + recommended sameAs`);
@@ -110,7 +114,7 @@ async function main() {
     log(`  blog-corpus <client> [--sites N] [--posts N] [--no-llm]   harvest the WINNING competitor blogs: ranked clinics from the panel+atlas resolved to VERIFIED sites, ALL posts sitemap-first, then distill their VOICE (quant profile + exemplars) as training data → research/blog-corpus/<client>/ (voice-profile.json feeds blog-post drafting automatically).`);
     log(`  content-cohort <client>   the statistical guardrail: snapshot cohort impressions vs site total; a collapsed cohort share flips content-pause.flag → blog-post refuses to post until it recovers.`);
     log(`  outreach   <client> [--dry-run] [--live] [--max N]   the SENDING outreach agent — reads offsite-worksheet targets, drafts pitches, compliance-lint, ROUND-ROBIN send via the configured Gmail mailboxes (Mini). Nothing sends without --live AND cfg.outreach.autoSend=true.`);
-    log(`  connect-mailbox <email>   grant the Gmail SEND scope for ONE mailbox (per-account OAuth). Verifies you signed in as the exact email typed; refuses cross-account grants. Run on the machine whose browser owns that Google session (i.e. the Mini for the two your-mini-account@/your-agency-account@ accounts).`);
+    log(`  connect-mailbox <email>   grant the Gmail SEND scope for ONE mailbox (per-account OAuth). Verifies you signed in as the exact email typed; refuses cross-account grants. Run on the machine whose browser owns that Google session (i.e. the Mini for the two supahotthanosmacmini@/seenaiseo@ accounts).`);
     log(`  serp-radar <client> [--cities N|"a,b"] [--queries "q1|q2"] [--max N] [--harvest] [--no-fingerprint]   GOOGLE lane: stealth top-10 organic per city × money queries (uule geo-pinned, block-aware, cooldown-gated) → who ranks, with WHICH pages (home/service/blog), shared tactic fingerprint (schema/FAQ/stars/city-titles/depth) → research/serp-playbook/<client>/PLAYBOOK.md. --harvest pulls the winners' FULL blogs into blog-corpus + rebuilds the voice.`);
     log(`  offsite-map <client>   OFF-PAGE lane: from the SERP + ChatGPT data already captured, map the directories + press every winner appears on (where to get listed / earn mentions), gaps flagged → research/serp-playbook/<client>/OFFSITE-MAP.md. No new network.`);
     log(`  fanout-atlas <client> [--cities N] [--prompt "best med spas in {city}"] [--tiers low,medium,high]   ChatGPT fan-out ATLAS across US med-spa markets: WHO it ranks #1..N per city + the sub-queries it fires + the sites it pulls from most → reports/fanout-atlas/atlas.md. Governor-paced (safe), resumable across runs.`);
@@ -134,7 +138,7 @@ async function main() {
     log(`  ── 100x round 2 (autonomy + E1091) ──`);
     log(`  schedule {install|run|status|remove} [--daily HH:MM] [--weekly "DAY HH:MM"] [--clients a,b] [--kind daily|weekly]  laptop autonomy: Task Scheduler (missed runs fire on wake); weekly pushes ONLY for clients with autopilot.push=true`);
     log(`  ── autonomous ops (Mini) ──`);
-    log(`  intake {connect|watch|status|github|mail|gmail|pair}  ZERO-CLICK CLIENT INTAKE, 3 lanes: GSC grant → auto-onboard · GitHub invite → accept+clone+pair (PR lane) · Gmail catch-all → C-suite surface (never clicks links). One-time: connect (your-agency-account consent) · gmail --app-password · GH_TOKEN in env. pair <client> --repo <o/n|path> wires cms.repoPath manually`);
+    log(`  intake {connect|watch|status|github|mail|gmail|pair}  ZERO-CLICK CLIENT INTAKE, 3 lanes: GSC grant → auto-onboard · GitHub invite → accept+clone+pair (PR lane) · Gmail catch-all → C-suite surface (never clicks links). One-time: connect (seenaiseo consent) · gmail --app-password · GH_TOKEN in env. pair <client> --repo <o/n|path> wires cms.repoPath manually`);
     log(`  escalate --title "<t>" [--severity critical|warning|info] [--area x] [--detail d] [--link url]  post a BIG issue to the C-suite Slack channel (24h dedupe; wrapper/scripts door)`);
     log(`  slack-test [--channel C…]   verify Slack wiring end-to-end (bot token → webhook fallback); exit 1 if undeliverable`);
     log(`  lane-health [--stale-hours N]  judge both capture lanes from artifacts; a lane quiet >24h escalates once`);
@@ -174,8 +178,8 @@ async function main() {
   if (command === 'intake') {
     // THE HANDOFF PROTOCOL (three lanes, each independent — a missing credential in one
     // never blocks the others):
-    //   gsc    — dev grants Search Console to your-agency@example.com → site auto-onboards
-    //   github — dev invites the your-agency-account GitHub account → invite ACCEPTED via API → repo
+    //   gsc    — dev grants Search Console to seenaiseo@gmail.com → site auto-onboards
+    //   github — dev invites the seenaiseo GitHub account → invite ACCEPTED via API → repo
     //            cloned → paired to the client config → PR lane live
     //   mail   — everything else that lands in the inbox (hosting invites, credentials) →
     //            surfaced to the C-suite channel; the bot NEVER clicks email links
@@ -186,7 +190,7 @@ async function main() {
       await intakeStatus({ log });
       const { ghToken } = await import('../src/intake/github.mjs');
       const { loadGmailCreds } = await import('../src/intake/mail.mjs');
-      log(`  github: ${ghToken() ? 'PAT set (GH_TOKEN)' : 'NOT configured — set GH_TOKEN (classic PAT, repo scope, your-agency-account account)'}`);
+      log(`  github: ${ghToken() ? 'PAT set (GH_TOKEN)' : 'NOT configured — set GH_TOKEN (classic PAT, repo scope, seenaiseo account)'}`);
       const gm = loadGmailCreds();
       log(`  gmail:  ${gm?.user ? `configured (${gm.user})` : 'NOT configured — `intake gmail --app-password "…"`'}`);
       return;
@@ -195,7 +199,7 @@ async function main() {
       // store the app password (encrypted) — Google account → 2-Step Verification → App passwords
       const { saveGmailCreds, intakeMail } = await import('../src/intake/mail.mjs');
       const pw = flags['app-password'] ? String(flags['app-password']).replace(/\s+/g, '') : null;
-      if (!pw) { log('usage: intake gmail --app-password "xxxx xxxx xxxx xxxx" [--user your-agency@example.com] [--test]'); process.exitCode = 1; return; }
+      if (!pw) { log('usage: intake gmail --app-password "xxxx xxxx xxxx xxxx" [--user seenaiseo@gmail.com] [--test]'); process.exitCode = 1; return; }
       const user = flags.user ? String(flags.user) : (process.env.SEO_BOT_INTAKE_EMAIL || null);
       if (!user) { log('  need --user <agency-gmail> (or set SEO_BOT_INTAKE_EMAIL in .env)'); process.exitCode = 1; return; }
       const r = saveGmailCreds({ user, appPassword: pw });
@@ -278,6 +282,162 @@ async function main() {
     });
     log(r.delivered ? '  ✅ delivered' : `  ❌ not delivered: ${r.note}`);
     process.exitCode = r.delivered ? 0 : 1;
+    return;
+  }
+
+  if (command === 'jobs-poll') {
+    // The Mini's fast job lane: claim queued work orders from the store (atomic CAS claim —
+    // safe even if two pollers ever coexist) and execute them through the runner's validated
+    // dispatch. Currently serves precall-audit (CONFIRMED lead → call ammo → C-suite Slack).
+    const { getStore, createGhDriver } = await import('../src/store/index.mjs');
+    const { handleOrder } = await import('../src/runner.mjs');
+    // We construct the DRIVER directly for the claim (bypasses a facade quirk that surfaced
+    // 2026-07-13 under launchd — the wrapStore claimWorkOrder returned null while the raw
+    // driver's did not). handleOrder still gets the facade — it wants the same interface
+    // the runner sees in prod.
+    const store = await getStore(process.env, { defaultDriver: 'gh' });
+    const driver = createGhDriver(process.env); // same repo/env, direct handle
+    log(`  jobs: transport=${store.driver} · GH_TOKEN=${process.env.GH_TOKEN ? 'set' : 'MISSING'} · repo=${store.raw?.repo || '?'}`);
+    let n = 0;
+    for (;;) {
+      let order = null;
+      try { order = driver.claimWorkOrder('_default', 'mini-jobs', ['precall-audit']); }
+      catch (e) { log(`  jobs: claim failed — ${String(e.message || e).slice(0, 120)}`); break; }
+      if (!order) break;
+      log(`  jobs: claimed ${order.id} (${order.type})`);
+      const r = await handleOrder(order, { store, org: '_default', runnerId: 'mini-jobs', log });
+      log(`  jobs: ${order.id} → ${r.status}${r.error ? ` (${r.error})` : ''}`);
+      if (++n >= 3) break; // bound one tick; the next tick drains the rest
+    }
+    if (!n) log('  jobs: queue empty');
+    return;
+  }
+
+  if (command === 'qb-verify') {
+    // Panel integrity audit (Shubh, 2026-07-14: "make sure you're doing it properly ... use Claude
+    // on the Mac Mini, even a cheaper model like Sonnet"): a headless `claude -p --model sonnet`
+    // pass re-reads suspicious persisted rows (model unread / no ranked list / short answer) and
+    // quarantines anything that isn't a real assistant answer. Fail-closed: no CLI or unparseable
+    // verdicts → nothing changes. Quarantined junk → C-suite hears about it (data honesty).
+    const { runQbVerify, QB_VERIFY_MODEL } = await import('../src/measure/qb-verify.mjs');
+    const r = runQbVerify({ log, maxRows: Number(flags.max) || 50, dry: !!flags.dry, model: flags.model ? String(flags.model) : undefined });
+    log(`  qb-verify: ${r.status} — scanned ${r.scanned} · suspects ${r.suspects} · quarantined ${r.junked}`);
+    if (r.junked > 0) {
+      const { escalate } = await import('../src/escalate.mjs');
+      await escalate(null, {
+        severity: 'warning', area: 'data-integrity',
+        title: `Query-bank panel: ${r.junked} junk row(s) quarantined`,
+        detail: `LLM adjudication (${flags.model || QB_VERIFY_MODEL}) flagged non-answer rows — ${Object.entries(r.byClient).map(([c, v]) => `${c}: ${v.junked}`).join(', ')} — panel stats deflated to truth.`,
+      }, { log });
+    }
+    if (r.status === 'llm-failed' || r.status === 'unparseable') process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'strategist') {
+    // The daily decision pass (Shubh 2026-07-15: "use Claude headless on the Mini to drive a lot
+    // of decisions"): claude reads the engine's own artifacts and posts a prioritized action memo
+    // to #c-suite. Proposes only — execution stays behind the fail-closed gates.
+    const { runStrategist } = await import('../src/strategist.mjs');
+    const clients = listConfigs().filter((n) => !['_e2e', 'example.client'].includes(n) && !n.startsWith('lead-'));
+    const r = runStrategist({ clients, log, model: flags.model ? String(flags.model) : undefined });
+    if (r.status !== 'ok') { if (r.status !== 'no-data') process.exitCode = 1; return; }
+    if (!flags.dry) {
+      const { escalate } = await import('../src/escalate.mjs');
+      const detail = r.memo.actions.map((a, i) => `${i + 1}. [${a.client || 'all'}·${a.lane}] ${a.title} — ${a.why}`).join('\n').slice(0, 1400);
+      await escalate(null, { severity: 'info', area: 'strategy', title: `📋 Strategy brief ${r.day} — ${r.memo.headline.slice(0, 120)}`, detail }, { log });
+    }
+    return;
+  }
+
+  if (command === 'seenai-fanout') {
+    // SELF-AEO (Shubh 2026-07-16): run the SeenAI intent bank ("best AI SEO company", "how do
+    // I get ranked on ChatGPT") through the Sturm fan-out capture, then roll the citations up
+    // into the placement hit-list (reports/query-bank/seenai/push-targets.md). Small + manual
+    // by design — it shares the ChatGPT account budget with the med-spa accrual lane.
+    const { runQueryBank } = await import('../src/measure/query-bank-runner.mjs');
+    const { SEENAI_QUERY_BANK } = await import('../src/measure/query-bank.mjs');
+    const { buildPushTargets, renderPushTargetsMd } = await import('../src/measure/push-targets.mjs');
+    const fsMod = await import('node:fs');
+    const { join } = await import('node:path');
+    const { ROOT } = await import('../src/config.mjs');
+    const dir = join(ROOT, 'reports', 'query-bank', 'seenai');
+    if (!flags['report-only']) {
+      const { capturePaused } = await import('../src/measure/capture-pause.mjs');
+      const pz = capturePaused('chatgpt', { root: ROOT });
+      if (pz.paused) { log(`  seenai-fanout: ⏸ PAUSED — ${pz.reason}`); return; }
+      const r = await runQueryBank({ brand: 'SeenAI' }, {
+        bank: SEENAI_QUERY_BANK, maxPerRun: Number(flags.max) || 13,
+        concurrency: Math.max(1, Number(flags.concurrency) || 2), fs: fsMod, dir, log,
+      });
+      log(`  seenai-fanout: +${r.captured} captured · ${r.accrued} total${r.halted ? ` · HALTED (${r.haltReason})` : ''}${r.cooling ? ' · in cooldown' : ''}`);
+    }
+    const ndjson = join(dir, 'observations.ndjson');
+    const rows = fsMod.existsSync(ndjson) ? fsMod.readFileSync(ndjson, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) : [];
+    if (!rows.length) { log('  seenai-fanout: no observations yet'); return; }
+    const t = buildPushTargets(rows);
+    fsMod.writeFileSync(join(dir, 'push-targets.md'), renderPushTargetsMd(t, { generatedAt: new Date().toISOString() }));
+    log(`  seenai-fanout: push-targets.md — ${t.sampled} answers · top sources: ${t.sources.slice(0, 5).map((s) => s.domain).join(', ') || '(none yet)'} · ${t.brand} named ${t.brandHits}/${t.sampled}`);
+    return;
+  }
+
+  if (command === 'fanout-agent') {
+    // Claude drives the logged-in browser through Playwright MCP (Shubh 2026-07-17): the agent
+    // SEES rate-limit walls and stops instantly — near-zero wasted budget vs the blind runner.
+    // Shares the seenai lane's cooldown gate; appends spec-joined rows; rebuilds push-targets.
+    const { runFanoutAgent, agentRowsFromCaptures } = await import('../src/measure/fanout-agent.mjs');
+    const { SEENAI_QUERY_BANK, expandQueryBank } = await import('../src/measure/query-bank.mjs');
+    const { buildPushTargets, renderPushTargetsMd } = await import('../src/measure/push-targets.mjs');
+    const fsMod = await import('node:fs');
+    const { join } = await import('node:path');
+    const { ROOT } = await import('../src/config.mjs');
+    const dir = join(ROOT, 'reports', 'query-bank', 'seenai');
+    fsMod.mkdirSync(dir, { recursive: true });
+    const { capturePaused } = await import('../src/measure/capture-pause.mjs');
+    const pz = capturePaused('chatgpt', { root: ROOT });
+    if (pz.paused) { log(`  fanout-agent: ⏸ PAUSED — ${pz.reason}`); return; }
+    const specs = expandQueryBank(SEENAI_QUERY_BANK);
+    const n = Math.max(1, Math.min(Number(flags.max) || 4, 8)); // hard ceiling 8 — polite citizen
+    const prompts = specs.slice(0, n).map((s) => s.promptText);
+    const r = runFanoutAgent({ prompts, dir, log, model: flags.model ? String(flags.model) : null });
+    if (r.status === 'cooling' || r.status === 'no-prompts') return;
+    if (!r.captures || !r.captures.length) { if (r.status !== 'ok') process.exitCode = 1; log(`  fanout-agent: ${r.status} — no captures persisted`); return; }
+    const rows = agentRowsFromCaptures(r.captures, specs, { nowIso: new Date().toISOString() });
+    for (const row of rows) fsMod.appendFileSync(join(dir, 'observations.ndjson'), JSON.stringify(row) + '\n');
+    log(`  fanout-agent: +${rows.length} rows appended (capturedVia=claude-agent)`);
+    const ndrows = fsMod.readFileSync(join(dir, 'observations.ndjson'), 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    const t = buildPushTargets(ndrows);
+    fsMod.writeFileSync(join(dir, 'push-targets.md'), renderPushTargetsMd(t, { generatedAt: new Date().toISOString() }));
+    log(`  fanout-agent: push-targets rebuilt — ${t.sampled} answers · ${t.fanout.length} fan-out queries · top sources: ${t.sources.slice(0, 5).map((s) => s.domain).join(', ')}`);
+    return;
+  }
+
+  if (command === 'qb-export') {
+    // Panel mirror (Shubh 2026-07-20, from a plane): ssh only works on the home LAN, but both
+    // machines always reach GitHub — so the jobs tick mirrors the seenai panel into the PRIVATE
+    // store where any seat can read it. Change-guarded inside (no new rows → no write).
+    const { runQbExport } = await import('../src/measure/qb-export.mjs');
+    const { getStore } = await import('../src/store/index.mjs');
+    const { ROOT } = await import('../src/config.mjs');
+    const store = await getStore(process.env, { defaultDriver: 'gh' });
+    const r = runQbExport({ client: clientArg || 'seenai', root: ROOT, store, log });
+    log(`  qb-export: ${r.status}${r.rows ? ` (${r.rows} rows)` : ''}${r.error ? ` — ${r.error}` : ''}`);
+    process.exitCode = ['ok', 'unchanged', 'no-data'].includes(r.status) ? 0 : 1;
+    return;
+  }
+
+  if (command === 'flight-check') {
+    const { runFlightCheck } = await import('../src/flight-check.mjs');
+    // Store probe: one cheap read through the configured driver — reachable = ok. Read-only.
+    let storeProbe = null;
+    try {
+      const { getStore } = await import('../src/store/index.mjs');
+      const store = await getStore();
+      await store.getJson('settings/_default/_flight-probe.json'); // null on miss is fine — reachability is the test
+      storeProbe = { ok: true };
+    } catch (e) { storeProbe = { ok: false, note: String(e.message || e).slice(0, 100) }; }
+    const v = await runFlightCheck({ log, storeProbe, clients: clientArg ? [clientArg] : null });
+    process.exitCode = v.system === 'RED' ? 1 : 0;
     return;
   }
 
@@ -584,6 +744,44 @@ async function main() {
     case 'propose': {
       const { propose } = await import('../src/decide.mjs');
       await propose(cfg, { log });
+      break;
+    }
+    case 'bets': {
+      const { runBetCycle, currentBets, decideBet, betRecord } = await import('../src/bets.mjs');
+      const approveId = flags.approve, rejectId = flags.reject;
+      if (approveId || rejectId) {
+        const r = decideBet(cfg, approveId || rejectId, approveId ? 'approve' : 'reject');
+        log(r.ok ? `  ✅ bet ${approveId || rejectId} → ${r.status}${r.status === 'active' ? ' (task queued in the action plan)' : ''}` : `  ✗ ${r.reason}`);
+        if (!r.ok) process.exitCode = 1;
+        break;
+      }
+      const bc = await runBetCycle(cfg, { log });
+      const rec = betRecord(cfg.name);
+      log(`\n  ── ${cfg.brand}: bet ledger ─────────────`);
+      log(`  Record: ${rec.hit} hit · ${rec.miss} miss · ${rec.inconclusive} inconclusive · hit-rate ${rec.hitRate ?? 'n/a'}${rec.hitRate !== null ? '%' : ''}`);
+      for (const b of currentBets(cfg.name).filter((x) => ['proposed', 'active', 'approved'].includes(x.status))) {
+        log(`    ${b.status === 'proposed' ? '🎯 PROPOSED' : `[${b.status}]`} ${b.id} — ${b.title} → ${b.metric} by ${b.horizonDate}${b.status === 'proposed' ? `\n      approve: bets ${cfg.name} --approve ${b.id}` : ''}`);
+      }
+      if (bc.placed.length) log(`  (${bc.placed.length} new proposal(s) this cycle — Slack card mirrors them)`);
+      break;
+    }
+    case 'scoreboard': {
+      const { snapshotOutcomes, scoreboard } = await import('../src/outcomes.mjs');
+      await snapshotOutcomes(cfg, { log });
+      const sb = await scoreboard(cfg, { log });
+      if (sb.ready) for (const m of sb.metrics.filter((x) => x.current !== null)) log(`    ${m.improving === null ? '·' : m.improving ? '▲' : '▼'} ${m.label}: ${m.current}${m.baseline !== null ? ` (baseline ${m.baseline})` : ''}`);
+      log(`\n  → reports/${cfg.name}/scoreboard.md`);
+      break;
+    }
+    case 'deep-audit': {
+      const { runDeepAudit } = await import('../src/deep-audit.mjs');
+      const { buildActionPlan } = await import('../src/action-plan.mjs');
+      const deep = await runDeepAudit(cfg, { log, capture: !flags['no-capture'] });
+      const plan = buildActionPlan(cfg, deep, { log });
+      log(`\n  ── ${cfg.brand}: deep audit ─────────────`);
+      log(`  Site ${deep.site?.score ?? '—'}/100 · readiness ${deep.readiness?.score ?? '—'}/100 · spam-risk ${deep.spamRisk?.clean ? 'clean' : `⚠ ${deep.spamRisk?.flags?.length}`}`);
+      log(`  Your week (${plan.founderWeek.length}):`);
+      for (const t of plan.founderWeek) log(`    ☐ ${t.title} (~${t.effortMin}m)`);
       break;
     }
     case 'apply': {
@@ -1096,6 +1294,11 @@ async function main() {
       const { TOP_US_MEDSPA_CITIES } = await import('../src/measure/fanout-atlas.mjs');
       const fsS = await import('node:fs'); const { join: joinS } = await import('node:path'); const { ROOT: rS } = await import('../src/config.mjs');
       const dir = joinS(rS, 'research', 'serp-playbook', cfg.name);
+      {
+        const { capturePaused } = await import('../src/measure/capture-pause.mjs');
+        const pz = capturePaused('serp', { root: rS });
+        if (pz.paused) { log(`  serp-radar: ⏸ PAUSED — ${pz.reason}`); break; }
+      }
       const cities = flags.cities && isNaN(Number(flags.cities))
         ? String(flags.cities).split(',').map((s) => s.trim()).filter(Boolean)
         : TOP_US_MEDSPA_CITIES.slice(0, Number(flags.cities) || 6);
@@ -1208,6 +1411,11 @@ async function main() {
         fsMod.writeFileSync(join(dir, 'report.md'), md);
         log(`  query-bank report rebuilt from ${rows.length} observations → ${join(dir, 'report.md')}`);
         break;
+      }
+      {
+        const { capturePaused } = await import('../src/measure/capture-pause.mjs');
+        const pz = capturePaused('chatgpt', { root: ROOT });
+        if (pz.paused) { log(`  query-bank: ⏸ PAUSED — ${pz.reason}`); break; }
       }
       const concurrency = Math.max(1, Number(flags.concurrency) || 3);
       const maxPerRun = flags.max != null ? Number(flags.max) : null;

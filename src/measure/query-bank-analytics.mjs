@@ -237,6 +237,40 @@ const rankCell = (r) => (r.meanRank == null ? '—' : (r.meanRankCi ? `${r.meanR
 const rateCell = (rate, ci, n) => (rate == null ? '—' : (ci ? `${pct(rate)} [${pct(ci[0])}–${pct(ci[1])}] (n=${n})` : `${pct(rate)} (n=${n})`));
 
 /** Build the Peec-style markdown report from the panel. clientBrand (optional) drives share-of-voice. */
+/** PURE: which model actually served each answer, and where the REGIME BOUNDARIES are.
+ *  Identity = sturm.resolvedModelSlug (the truth — routing silently swaps models under a
+ *  stable UI label) > row.model (UI label) > '(unlabeled)'. A day whose dominant model
+ *  differs from the previous day's starts a new regime; metrics must never be trended
+ *  across an un-annotated boundary (documented live: the Mar-4-2026 swap moved avg cited
+ *  domains −20% overnight). Operator order 2026-07-26: "models change pretty fast —
+ *  break down what models we're retrieving for med-spa searches." */
+export function modelMix(rows = []) {
+  const ident = (r) => r?.sturm?.resolvedModelSlug || r?.model || '(unlabeled)';
+  const ok = rows.filter((r) => r && r.status === 'ok');
+  const byModel = new Map();
+  const byDay = new Map();
+  for (const r of ok) {
+    const m = ident(r);
+    const e = byModel.get(m) || { model: m, n: 0, firstDay: r.day || '', lastDay: r.day || '' };
+    e.n += 1;
+    if (r.day) {
+      if (!e.firstDay || r.day < e.firstDay) e.firstDay = r.day;
+      if (r.day > e.lastDay) e.lastDay = r.day;
+    }
+    byModel.set(m, e);
+    if (r.day) { const d = byDay.get(r.day) || new Map(); d.set(m, (d.get(m) || 0) + 1); byDay.set(r.day, d); }
+  }
+  const models = [...byModel.values()].sort((a, b) => b.n - a.n)
+    .map((e) => ({ ...e, share: ok.length ? e.n / ok.length : 0 }));
+  const regimes = [];
+  let prev = null;
+  for (const day of [...byDay.keys()].sort()) {
+    const top = [...byDay.get(day).entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))[0][0];
+    if (top !== prev) { regimes.push({ day, model: top }); prev = top; }
+  }
+  return { sampled: ok.length, models, regimes };
+}
+
 export function buildQueryBankReport(observations = [], { generatedAt = '', clientBrand = '' } = {}) {
   const sum = panelSummary(observations);
   const decomp = varianceDecomposition(observations, { topK: 5 });
@@ -255,6 +289,18 @@ export function buildQueryBankReport(observations = [], { generatedAt = '', clie
     decomp.dominant ? `**Read:** \`${decomp.dominant}\` is the biggest source of ranking variation in the panel so far.` : '_Not enough repeated samples yet to attribute variance — accrues as the bank runs across days/variants/engines._',
     '',
   ];
+
+  // Model mix — which model is ACTUALLY answering, and where the regime boundaries sit.
+  const mm = modelMix(observations);
+  if (mm.sampled) {
+    L.push('## 🤖 Model mix — which model is actually answering', '',
+      '_Identity = `resolved_model_slug` when captured (the truth), else the UI model label. A dominant-model switch is a REGIME BOUNDARY: comparisons that span one measure the model swap, not the market._', '',
+      '| model (resolved) | rows | share | first seen | last seen |', '|------------------|------|-------|------------|-----------|',
+      ...mm.models.map((m) => `| \`${m.model}\` | ${m.n} | ${pct(m.share)} | ${m.firstDay || '—'} | ${m.lastDay || '—'} |`), '');
+    if (mm.regimes.length > 1) {
+      L.push('**Regime boundaries (dominant model switched):** ' + mm.regimes.map((r) => `${r.day} → \`${r.model}\``).join(' · '), '');
+    }
+  }
 
   // Spelling spotlight — for each city, does the #1 change with the wording? (only if spelling measurable)
   if (sum.canMeasure.spelling) {

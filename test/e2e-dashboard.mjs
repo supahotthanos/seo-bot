@@ -164,7 +164,10 @@ try {
     await page.waitForTimeout(200);
     await page.screenshot({ path: join(OUT, '07-cmdk.png') });
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(1500);
+    // window.location.href navigation round-trips the server — a fixed 1500ms flakes on
+    // slow links/cold routes (and the late navigation then destroys the NEXT step's
+    // execution context). Wait for the URL itself, generously.
+    await page.waitForURL(/\/experiments/, { timeout: 20000 }).catch(() => {});
     step('palette jumps to Experiments', page.url().includes('/experiments'), page.url());
     await page.keyboard.press('Control+k'); await page.waitForTimeout(200);
     await page.keyboard.press('Escape'); await page.waitForTimeout(200);

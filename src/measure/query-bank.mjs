@@ -69,6 +69,59 @@ export const MEDSPA_QUERY_BANK = {
       { id: 'v1', template: 'most reputable med spa in {city} with real reviews' },
       { id: 'v2', template: 'med spa in {city} with the best reviews' },
     ] },
+    // AdWords-style TRANSACTIONAL terms (Shubh 2026-07-20: "fan-out query, AdWords term style,
+    // everything") — deal/booking phrasing is how a ready-to-buy customer talks to ChatGPT, and
+    // the fan-outs + sources behind these are the highest-commercial-intent placement targets.
+    { id: 'deals', intent: 'transactional: deals / booking (adwords-style)', variants: [
+      { id: 'v1', template: 'botox deals in {city}' },
+      { id: 'v2', template: 'med spa specials in {city}' },
+      { id: 'v3', template: 'book a botox appointment in {city}' },
+    ] },
+  ],
+};
+
+// SELF-AEO bank (Shubh 2026-07-16): the questions OUR prospects ask AI when they want what
+// SeenAI sells. Same Sturm capture machinery as the med-spa bank, pointed at ourselves — the
+// fan-out sub-queries tell us what ChatGPT actually researches, and the cited sources are the
+// ranked list of PLACES TO GET SEENAI PLACED. Non-geo intent → single '' city cell; audience
+// variants live in the templates. Deliberately small (shares the same account budget as the
+// med-spa lane): run via `seenai-fanout`, capped, never a KeepAlive loop.
+export const SEENAI_QUERY_BANK = {
+  vertical: 'ai-seo-agency',
+  cities: [''],
+  engines: ['chatgpt'],
+  tiers: ['low'],
+  queries: [
+    { id: 'rank-on-chatgpt', intent: 'get my business recommended by ChatGPT', variants: [
+      { id: 'v1', template: 'what is the best company to get my business ranked on ChatGPT' },
+      { id: 'v2', template: 'how can I get my company recommended by ChatGPT' },
+      { id: 'v3', template: 'who can get my business to show up in ChatGPT answers' },
+    ] },
+    { id: 'ai-seo-company', intent: 'best AI SEO company', variants: [
+      { id: 'v1', template: 'best AI SEO company' },
+      { id: 'v2', template: 'best AI SEO agency 2026' },
+      { id: 'v3', template: 'top AI search optimization companies' },
+    ] },
+    { id: 'aeo-agency', intent: 'best AEO/GEO agency', variants: [
+      { id: 'v1', template: 'best answer engine optimization agency' },
+      { id: 'v2', template: 'best generative engine optimization (GEO) agency' },
+    ] },
+    { id: 'ai-visibility', intent: 'AI visibility tracking/services', variants: [
+      { id: 'v1', template: 'who offers AI search visibility tracking for my business' },
+      { id: 'v2', template: 'best tools or agencies to monitor how ChatGPT talks about my brand' },
+    ] },
+    { id: 'medspa-vertical', intent: 'vertical: med spa marketing via AI search', variants: [
+      { id: 'v1', template: 'best SEO agency for med spas' },
+      { id: 'v2', template: 'how do I get my med spa recommended on ChatGPT' },
+    ] },
+    // AdWords-style commercial terms for OUR funnel (Shubh 2026-07-20): hire/cost phrasing is
+    // what a med-spa owner types when they're ready to pay — whoever owns these answers gets
+    // the call, and the cited sources are where SeenAI's pricing/services pages must appear.
+    { id: 'hire-pricing', intent: 'hiring / pricing an AI-SEO agency (adwords-style)', variants: [
+      { id: 'v1', template: 'how much does AI SEO for a med spa cost' },
+      { id: 'v2', template: 'hire an SEO agency for my med spa' },
+      { id: 'v3', template: 'SEO services for med spas pricing' },
+    ] },
   ],
 };
 

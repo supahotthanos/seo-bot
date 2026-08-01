@@ -226,7 +226,10 @@ export async function publishBlogPost(cfg = {}, { brief, deps = {}, dryRun = fal
       if (ai.score > 0.15) return { status: 'gated', violations: [`reads like AI slop even after humanize pass (${ai.hits.join(', ')})`], post: { slug: post.slug, title: post.title } };
     }
   }
-  const cap = maxPerWeek ?? cfg.content?.maxPostsPerWeek ?? 7;
+  // Weekly cap = the SMALLER of the configured ceiling and the per-week jittered 3-5 target
+  // (June-2026 rec #4: randomized cadence, not a metronome). Explicit maxPerWeek overrides both.
+  const { jitteredWeeklyCap } = await import('./index.mjs');
+  const cap = maxPerWeek ?? Math.min(cfg.content?.maxPostsPerWeek ?? 7, jitteredWeeklyCap({ client: cfg.name, now: Date.parse(nowIso) || Date.now() }));
   const gate = validateBlogPost(post, registry, { nowIso, maxPerWeek: cap });
   if (!gate.ok) { log(`  ✗ blog gates: ${gate.violations.join(' · ')}`); return { status: 'gated', violations: gate.violations, post: { slug: post.slug, title: post.title } }; }
 

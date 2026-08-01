@@ -18,7 +18,7 @@ mkdir -p "$DST" "$BOT/logs"
 pkill -f 'scripts/query-bank-accrue.sh' 2>/dev/null && echo "· stopped manual query-bank-accrue"
 pkill -f 'scripts/serp-accrue.sh' 2>/dev/null && echo "· stopped manual serp-accrue"
 
-for name in weekly daily intake qb-accrue serp-accrue; do
+for name in weekly daily intake morning jobs qb-accrue serp-accrue; do
   label="digital.cnai.seenai.$name"
   plist="$SRC/$label.plist"
   [ -f "$plist" ] || { echo "!! missing $plist"; continue; }

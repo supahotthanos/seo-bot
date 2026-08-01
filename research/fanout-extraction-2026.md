@@ -82,6 +82,53 @@ CLAIM: ChatGPT injects the current year into fan-outs for recency ("2026" modifi
 EVIDENCE: Lily Ray commentary; consistent with our E1091 drift linter, which already lints
 stale/missing year tokens against captured fan-outs. TIER: high (already encoded).
 
+## 6 · July-2026 refresh (Shubh 2026-07-16 audit; Suganthan/SEL sources)
+
+CLAIM: ChatGPT's conversation payload now carries a per-source `result_source` label naming which
+retrieval PIPE fetched the URL — observed values: `bright` (Bright Data), `labrador` (licensed
+content), `serp`, `oxylabs` (present June, gone by July), and `bing` (rolled out mid-July, cohort-gated).
+EVIDENCE: Suganthan Mohanadasan's live traffic study; a `bing` sighting was captured for
+bobvila.com pages on some accounts while other accounts show 0/595. TIER: medium-high (single
+researcher, but multi-account reproducible; cohort rollout expected to broaden).
+
+CLAIM: A new `supporting_websites` array carries per-claim runner-up sources — previously empty,
+now populated with each entry's own `result_source` label. Also new: `browse_rewritten_queries`
+(the model's own reformulation of the user's ask, on 5.4 Instant/product paths).
+EVIDENCE: Suganthan's payload analysis; Search Engine Land on `web.run` structured operations.
+TIER: high (documented public payload).
+
+CLAIM: `web.run` since 5.3 sends STRUCTURED JSON with typed operations (`search_query`, `open`,
+`find`, `click`, `screenshot`, `product_query`) instead of pipe-separated commands; the response
+carries `ref_id` (e.g. `turn0search0`) references to specific search hits.
+EVIDENCE: Search Engine Land. TIER: high.
+
+CLAIM (verified live, our own capture 2026-07-17): the conversation payload's TRANSPORT is an
+SSE stream (`event: delta_encoding`, `data:` frames) and sources arrive as JSON-PATCH deltas
+(`{p: "/message/metadata/content_references/5/safe_urls", o, v}`) — any extractor that
+JSON.parses the whole body silently gets nothing. Frames also carry `resolved_model_slug`
+(true serving model) and map-pack entities via `provider: "bright-feed"` with Google Maps URLs.
+EVIDENCE: our live Scottsdale diagnostic (496KB stream dumped + field-mapped). TIER: high.
+
+**ENGINE CHANGE (this refresh, commit landing 2026-07-17):**
+1. `extractSturm` now walks `supporting_websites`, `browse_rewritten_queries`, and structured
+   `search_result_group.entries` (title + snippet + result_source). Every cited URL carries its
+   own `resultSource` label. `resultSourceCounts` aggregates the retrieval-pipe attribution per
+   capture — first-class first look at Bing / Bright / labrador share.
+2. `stampObservation` in the runner now CARRIES `sturm`, `searchTrace`, `fetchedUrls`, and the
+   inferred model label onto the persisted row. **Retro-audit finding: rows 3,932/3,932 in the
+   med-spa panel prior to this fix had `sturm=undefined` (the persist step was dropping the
+   field). The URL data still landed via `citations.urls` (99.7% fill) — that channel worked —
+   but the per-URL {title, resultSource} attribution was silently thrown away for the entire
+   panel.** Fixed forward-only; historical rows remain URL-only.
+
+CLAIM: OpenAI and Microsoft's original Bing-only retrieval no longer holds — Alex Rylko's
+reproducible finding is that ChatGPT is now grounded on Google-derived indexes in addition to
+Bing (matching the emergence of `serp` and `bright` alongside `bing` in `result_source`).
+EVIDENCE: Suganthan Mohanadasan (writing on Alex Rylko's discovery). TIER: medium.
+IMPLICATION for us: Bing Webmaster Tools grounding-queries is still a signal, but no longer the
+ONLY window — a placement that appears via `bing` result_source AND separately via `serp`/`bright`
+is a stronger hardwire than either alone.
+
 CLAIM: Google's new AI search report (Search Console) ships without brand-mention or fan-out
 tracking, limiting its value for GEO measurement.
 EVIDENCE: Lily Ray public commentary on the report. TIER: medium (product will iterate).

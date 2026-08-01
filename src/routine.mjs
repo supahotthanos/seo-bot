@@ -130,7 +130,63 @@ export async function weeklyRoutine(cfg, { log = () => {}, push = false, n = 3 }
   const { dailyBrief } = await import('./brief.mjs');
   const brief = await dailyBrief(cfg, { log, hours: 24 * 7 });
 
-  const summary = { client: cfg.name, started, finished: nowIso(), auditScore: loop.auditScore, pushed: auto.applied, queued: (auto.policyQueued || 0) + (auto.verifierRejected || 0), flagged: brief.flagged?.length || 0 };
+  // 5.5) FOUNDER ACTION-PLAN weekly diff (founders+AI lane). Cheap signals only — the fresh
+  //      site audit auto-verifies/reopens `site:*` tasks; local/citation tasks wait for the
+  //      monthly deep-audit capture. A brand-new plan is NOT generated here (that's deep-audit's
+  //      job) — this keeps an existing plan honest between deep runs. Never breaks the cycle.
+  let planDiff = null;
+  try {
+    const fsAp = await import('node:fs');
+    const { join: joinAp } = await import('node:path');
+    const { ROOT: rAp } = await import('./config.mjs');
+    if (fsAp.existsSync(joinAp(rAp, 'reports', cfg.name, 'deep-audit-latest.json'))) {
+      const { runDeepAudit } = await import('./deep-audit.mjs');
+      const { buildActionPlan } = await import('./action-plan.mjs');
+      // capture:false = no live GBP/citation fetches on the weekly tick; site audit reuses the
+      // loop's crawl budget (runAudit is cheap relative to the loop that just ran).
+      const deep = await runDeepAudit(cfg, { log, capture: false, save: false });
+      const plan = buildActionPlan(cfg, deep, { log });
+      planDiff = { founderWeek: plan.founderWeek.length, verified: plan.autoVerified.verified.length, reopened: plan.autoVerified.reopened.length };
+      // Slack: the founder's weekly checklist card (approvals channel — where the humans live).
+      try {
+        const { notifyFounderTodo } = await import('./notify.mjs');
+        await notifyFounderTodo(cfg, plan, { log });
+      } catch { /* the card is a mirror, not a gate */ }
+    }
+  } catch (e) { log(`  action-plan diff skipped: ${String(e.message || e).slice(0, 120)}`); }
+
+  // 5.6) RANK LOOP Layer 2: weekly outcome snapshot (the longitudinal ledger nothing else
+  //      keeps), the locked-horizon judgment sweep (fills decisions.ndjson — the previously
+  //      DORMANT feed for auto-promotion + priors), and the scoreboard w/ stall detection.
+  //      Each fail-soft; measurement honesty inside each module (null ≠ zero).
+  let outcomes = null;
+  try {
+    const { snapshotOutcomes, scoreboard } = await import('./outcomes.mjs');
+    const { horizonSweep } = await import('./stats/horizon-sweep.mjs');
+    const snap = await snapshotOutcomes(cfg, { log });
+    const sweep = await horizonSweep(cfg, { log });
+    if (sweep.note) log(`  horizon-sweep: ${sweep.note}`);
+    const sb = await scoreboard(cfg, { log });
+    outcomes = { snapshot: snap.appended, swept: sweep.swept, booked: sweep.booked, stalled: !!sb.stalled };
+  } catch (e) { log(`  outcomes skipped: ${String(e.message || e).slice(0, 120)}`); }
+
+  // 5.7) RANK LOOP Layer 3: the bet cycle — score every active bet past its locked horizon
+  //      against the outcomes ledger (hit/miss/inconclusive, honest grace window), place any
+  //      bets today's strategist memo proposed for this client, and mirror new proposals to
+  //      Slack for the human verdict. The agent's record compounds in bets-brief.md, which
+  //      next morning's strategist READS — memory closes the loop. Never breaks the cycle.
+  let betCycle = null;
+  try {
+    const { runBetCycle } = await import('./bets.mjs');
+    const bc = await runBetCycle(cfg, { log });
+    betCycle = { scored: bc.scoredNow.length, placed: bc.placed.length, hitRate: bc.record.hitRate };
+    if (bc.placed.length) {
+      try { const { notifyBetProposals } = await import('./notify.mjs'); await notifyBetProposals(cfg, { placed: bc.placed, record: bc.record }, { log }); }
+      catch { /* the ledger is the record; Slack is a mirror */ }
+    }
+  } catch (e) { log(`  bet cycle skipped: ${String(e.message || e).slice(0, 120)}`); }
+
+  const summary = { client: cfg.name, started, finished: nowIso(), auditScore: loop.auditScore, pushed: auto.applied, queued: (auto.policyQueued || 0) + (auto.verifierRejected || 0), flagged: brief.flagged?.length || 0, planDiff, outcomes, betCycle };
   log(`\n✓ Weekly routine complete — audit ${loop.auditScore}/100 · ${auto.applied} auto-applied (consensus) · ${summary.queued} queued · ${summary.flagged} flagged in the brief\n`);
   return summary;
 }

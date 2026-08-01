@@ -9,6 +9,7 @@ This is **seo-bot** — an autonomous SEO/AEO engine. Read this before changing 
   tests + an integration loop. **Must stay green before any merge.**
 - `seo-bot/scraper/fetch.py` — the Python Scrapling/Camoufox stealth sidecar.
 - `scripts/ai-visibility/track.mjs` — the browser AI-visibility tracker.
+- `research/` — the SEO/AEO knowledge base the engine encodes.
 
 Paths are resolved from a `ROOT` constant (`seo-bot/src/config.mjs`) = the repo root. Keep the
 `seo-bot/` + `scripts/` directory layout; modules read `ROOT/scripts/ai-visibility/…`,

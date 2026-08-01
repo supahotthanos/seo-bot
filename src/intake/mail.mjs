@@ -1,4 +1,4 @@
-// seo-bot · intake/mail — the Gmail CATCH-ALL lane (your-agency@example.com on the Mini).
+// seo-bot · intake/mail — the Gmail CATCH-ALL lane (seenaiseo@gmail.com on the Mini).
 //
 // The deterministic handoffs ride their APIs (GSC grants → sites.list, GitHub invites →
 // repository_invitations). This lane reads THE MAILBOX ITSELF for everything else a dev

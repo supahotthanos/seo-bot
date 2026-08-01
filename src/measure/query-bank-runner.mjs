@@ -14,7 +14,7 @@ import { isChallenge, isRateLimit, inCooldown, SAFE_DEFAULTS } from './capture-g
 /** PURE: stamp a raw capture rec with the observation's panel dimensions (the spec) + derived day
  *  fields. capturedAt comes from the capture; nowIso is a fallback. Everything the analytics slices
  *  on lives here, so a row is self-describing. */
-export function stampObservation(rec = {}, spec = {}, { nowIso = '' } = {}) {
+export function stampObservation(rec = {}, spec = {}, { nowIso = '', vantage = null, authState = null } = {}) {
   const capturedAt = rec.capturedAt || nowIso;
   let dow = null; try { dow = new Date(capturedAt).getUTCDay(); } catch { /* leave null */ }
   return {
@@ -23,9 +23,25 @@ export function stampObservation(rec = {}, spec = {}, { nowIso = '' } = {}) {
     promptText: spec.promptText ?? rec.prompt, engine: spec.engine || rec.engine || 'chatgpt', tier: spec.tier || 'default', city: spec.city,
     capturedAt, dow, day: String(capturedAt).slice(0, 10),
     model: rec.model || null,
+    // vantage = WHICH SEAT captured this (mini | laptop-ca | …). Two capture machines on two
+    // networks are a variance factor a quant must be able to hold fixed — unstamped rows would
+    // silently mix vantages and pollute the day/spelling/engine decomposition.
+    vantage: rec.vantage ?? vantage,
+    // authState = logged-in | logged-out (Shubh 2026-07-20: "an unbiased opinion based off of
+    // area"). Temporary chat STILL applies the account's custom instructions; only a logged-out
+    // session is personalization-free. Same prompt across both states = the personalization
+    // delta, measured. null = legacy rows captured before the label existed.
+    authState: rec.authState ?? authState,
     answerHash: answerHash(rec.answer || ''),
     ranked: rec.ranked || [], subqueries: rec.subqueries || [], citations: rec.citations || { urls: [] },
     answerExcerpt: rec.answerExcerpt || '', answer: (rec.answer || '').slice(0, 4000),
+    // Source-level fields (Edward Sturm's July-2026 method): what the payload actually reveals —
+    // the fan-out sub-queries, the {url,title,resultSource} sources cited, the "runner-up"
+    // supporting_websites, the trace lines shown mid-stream, the final answer's <a> chips.
+    // Historically written by the capture layer but DROPPED here (3,932 rows had sturm=undefined).
+    sturm: rec.sturm || null,
+    searchTrace: rec.searchTrace || [],
+    fetchedUrls: rec.fetchedUrls || [],
   };
 }
 
@@ -34,6 +50,8 @@ export function stampObservation(rec = {}, spec = {}, { nowIso = '' } = {}) {
 export async function runQueryBank(cfg = {}, {
   bank = MEDSPA_QUERY_BANK, overrides = {}, concurrency = 3, maxPerRun = null,
   fs = null, dir = null, log = () => {}, capture = captureFanoutBatch, nowIso = new Date().toISOString(),
+  vantage = process.env.SEO_BOT_VANTAGE || null, // which capture seat (env-set per machine)
+  authState = process.env.SEO_BOT_AUTH_STATE || null, // logged-in | logged-out (env-set per lane)
 } = {}) {
   if (!fs || !dir) throw new Error('runQueryBank needs { fs, dir } from the caller');
   const { existsSync, readFileSync, appendFileSync, writeFileSync, mkdirSync } = fs;
@@ -69,25 +87,33 @@ export async function runQueryBank(cfg = {}, {
   // TRANSIENT capture errors (a few tabs timed out under multi-tab/RAM contention — NOT a cap;
   // halt this run to stop hammering, but do NOT stamp the multi-hour cooldown, so the next loop
   // pass ~20 min later just retries). Conflating them idled the whole lane for 3h off 3 tab errors.
-  let captured = 0, halted = false, haltReason = null, consecutiveErrors = 0;
-  const ERROR_HALT_STREAK = Math.max(3, (Number(concurrency) || 1) + 3); // concurrency-aware: interleaved tab errors shouldn't trip it
+  let captured = 0, halted = false, haltReason = null, consecutiveMisses = 0;
+  const MISS_HALT_STREAK = Math.max(3, (Number(concurrency) || 1) + 3); // concurrency-aware: interleaved tab misses shouldn't trip it
   const onResult = (rec, spec, i) => {
-    // A ChatGPT account message-cap or an anti-bot challenge → pause (NOT a ban, NOT forced/solved).
-    if (!halted && (isRateLimit(rec.answerExcerpt || '') || isChallenge(rec.answerExcerpt || '') || isChallenge(rec.answer || ''))) {
-      halted = true; haltReason = 'cap'; log(`  ⏸  ChatGPT limit/challenge at "${spec.promptText}" — pausing + cooldown (resume after reset).`); return;
+    // A ChatGPT account message-cap, an anti-bot challenge, or a page-level WALL (capture layer
+    // saw "unusual activity"/throttle text → status 'blocked' + blockText) → pause. NOT forced,
+    // NOT solved — and always a cooldown, because a walled session stays walled if re-hammered.
+    if (!halted && (rec.status === 'blocked'
+      || isRateLimit(rec.answerExcerpt || '') || isChallenge(rec.answerExcerpt || '')
+      || isChallenge(rec.answer || '') || isRateLimit(rec.blockText || '') || isChallenge(rec.blockText || ''))) {
+      halted = true; haltReason = 'cap';
+      log(`  ⏸  ChatGPT limit/challenge/wall at "${spec.promptText}"${rec.blockText ? ` — "${String(rec.blockText).slice(0, 90)}"` : ''} — pausing + cooldown (resume after reset).`);
+      return;
     }
     if (halted) return;
     if (rec.status === 'ok') {
-      consecutiveErrors = 0;
-      const row = stampObservation(rec, spec, { nowIso });
+      consecutiveMisses = 0;
+      const row = stampObservation(rec, spec, { nowIso, vantage, authState });
       appendFileSync(ndjson, JSON.stringify(row) + '\n'); captured += 1;
       log(`  [${cursor + i + 1}/${specs.length}] ${spec.city} · ${spec.variantId} · ${spec.engine}: ${(row.ranked || []).length} ranked · ${(row.subqueries || []).length} subq · ${(row.citations?.urls || []).length} cites`);
     } else {
-      if (rec.status === 'error') consecutiveErrors += 1; else consecutiveErrors = 0;
+      // EVERY non-ok result counts toward the breaker. The old version only counted 'error' —
+      // an unrecognized throttle wall surfaces as EMPTY, so an all-empty run sailed through the
+      // whole slice, never halted, never cooled down, and re-hammered every loop pass (the
+      // "keeps wasting into the wall" failure Shubh caught live on the Mini, 2026-07-14).
+      consecutiveMisses += 1;
       log(`  [${cursor + i + 1}/${specs.length}] ${spec.city} · ${spec.variantId} · ${spec.engine}: ${rec.status} (excluded)`);
-      // Circuit breaker: a long streak of consecutive errors → stop this run. Marked as 'errors'
-      // (transient) not 'cap' — so we retry next pass without burning a multi-hour cooldown.
-      if (consecutiveErrors >= ERROR_HALT_STREAK) { halted = true; haltReason = 'errors'; log(`  ⏸  ${consecutiveErrors} consecutive capture errors — ending this run (transient; retry next pass, no cooldown).`); }
+      if (consecutiveMisses >= MISS_HALT_STREAK) { halted = true; haltReason = 'errors'; log(`  ⏸  ${consecutiveMisses} consecutive missed captures (empty/error) — ending this run.`); }
     }
   };
 

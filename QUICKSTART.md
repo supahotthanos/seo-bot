@@ -6,7 +6,8 @@ This is the end-to-end path for a **new person on a new machine**. Every step is
 ## 0. Prerequisites (5 min)
 
 - **Node 18+** (`node -v`) and **git**
-- **Clone it** — `git clone https://github.com/supahotthanos/seo-bot.git`
+- **Repo access** — this repo is private; ask the owner to add you as a collaborator on
+  `supahotthanos/seo-bot-standalone`
 - **A model for drafting/verifying** (one of):
   - the **Claude Code CLI** logged in (`claude` → sign in once) — no API key needed, or
   - `ANTHROPIC_API_KEY` set in your environment
@@ -15,7 +16,7 @@ This is the end-to-end path for a **new person on a new machine**. Every step is
 ## 1. Install
 
 ```bash
-git clone https://github.com/supahotthanos/seo-bot.git seo-bot
+git clone https://github.com/supahotthanos/seo-bot-standalone.git seo-bot
 cd seo-bot
 npm install                        # one required dep (cheerio); optional ones are graceful
 npx playwright install chromium    # optional: enables AI-visibility measurement (measure/serp)

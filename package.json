@@ -1,7 +1,7 @@
 {
   "name": "seo-bot",
-  "version": "0.2.0",
-  "description": "Autonomous, plug-and-play SEO/AEO engine \u2014 audits a site, proposes fixes, pushes them as PRs behind a verifier-consensus gate, and tracks AI-search visibility (ChatGPT / Google AI Mode / Perplexity / AI Overviews). Runs on the Claude Code subscription \u2014 no API key required.",
+  "version": "0.1.0",
+  "description": "Autonomous, plug-and-play SEO/AEO engine — audits a site, proposes fixes, pushes them as PRs behind a verifier-consensus gate, and tracks AI-search visibility (ChatGPT / Google AI Mode / Perplexity / AI Overviews). Runs on the Claude Code subscription — no API key required.",
   "type": "module",
   "license": "MIT",
   "bin": {
@@ -34,9 +34,5 @@
     "ai-overviews",
     "llm",
     "claude-code"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/supahotthanos/seo-bot.git"
-  }
+  ]
 }
